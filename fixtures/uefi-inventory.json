@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "device_id": "fictional-disk",
+  "disk_size_bytes": 137438953472,
+  "firmware": "uefi",
+  "secure_boot": "enabled",
+  "windows_firmware": "uefi",
+  "regions": [
+    {
+      "id": "windows",
+      "kind": "protected",
+      "owner": "windows",
+      "start_bytes": 1073741824,
+      "size_bytes": 67645734912
+    },
+    {
+      "id": "free",
+      "kind": "free",
+      "owner": null,
+      "start_bytes": 68719476736,
+      "size_bytes": 68719476736
+    }
+  ]
+}

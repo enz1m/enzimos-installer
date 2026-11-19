@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=enzimOS
+Description=Quiet enzimOS startup with disk unlock and boot details
+ModuleName=script
+[script]
+ImageDir=/usr/share/plymouth/themes/enzimos
+ScriptFile=/usr/share/plymouth/themes/enzimos/enzimos.script
+Font=Sans 14

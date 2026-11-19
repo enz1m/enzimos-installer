@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT
+[Unit]
+Description=enzimOS live: start the installer
+After=systemd-user-sessions.service systemd-logind.service systemd-udev-settle.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /usr/lib/enzimos-installer/live-select.sh
+[Install]
+WantedBy=graphical.target

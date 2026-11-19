@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "inventory_sha256": "d8fd2c45794682a29dcf16750e17fbb63ddef1ccdb8414c3232589923a8dd9a6",
+  "device_id": "fictional-disk",
+  "loader": "limine",
+  "secure_boot": "not-applicable",
+  "encryption": {
+    "kind": "luks2",
+    "explicit_opt_out": false
+  },
+  "root": {
+    "filesystem": "btrfs",
+    "compression": true,
+    "separate_home_history": true,
+    "os_rollback_reverts_home": false
+  },
+  "swap": {
+    "kind": "btrfs-swapfile",
+    "separate_subvolume": true,
+    "nocow": true,
+    "compression": false,
+    "snapshots": false,
+    "backups": false,
+    "zram": true,
+    "zswap": false,
+    "inside_luks_when_enabled": true
+  },
+  "recovery": "independent-on-disk",
+  "allocations": [
+    {
+      "free_region": "free",
+      "role": "boot",
+      "start_bytes": 68719476736,
+      "size_bytes": 1073741824
+    },
+    {
+      "free_region": "free",
+      "role": "root",
+      "start_bytes": 69793218560,
+      "size_bytes": 64424509440
+    },
+    {
+      "free_region": "free",
+      "role": "recovery",
+      "start_bytes": 134217728000,
+      "size_bytes": 3221225472
+    }
+  ]
+}

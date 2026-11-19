@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+# Initramfs only (pulled in by rd.systemd.wants= on the live kernel command line).
+[Unit]
+Description=enzimOS live root (squashfs + RAM overlay)
+DefaultDependencies=no
+After=systemd-udev-trigger.service systemd-udevd.service
+Before=initrd-root-fs.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/bash /usr/lib/enzimos-live/live-root.sh
+StandardOutput=journal+console

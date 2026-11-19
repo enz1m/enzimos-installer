@@ -1,0 +1,6 @@
+#!/usr/bin/bash
+# SPDX-License-Identifier: MIT
+set -euo pipefail
+[[ $# == 1 && $1 =~ ^/dev/[A-Za-z0-9]+$ ]] || exit 2
+export PATH=/usr/bin LC_ALL=C
+exec /usr/lib/enzimos-installer/enzimos-installer-native partition inspect "$1"

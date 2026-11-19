@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "component": "installer",
+  "package_name": "enzimos-rust-installer",
+  "version": "0.2.0",
+  "architecture": "x86_64",
+  "profile": "rust-candidate",
+  "automatic_activation": false,
+  "installed_qualification": false,
+  "binaries": {
+    "enzimos-installer": "usr/lib/enzimos-installer/enzimos-installer-native",
+    "enzimos-installer-package-worker": "usr/lib/enzimos-installer/enzimos-installer-package-worker"
+  },
+  "dependencies": [
+    "glibc",
+    "gcc-libs",
+    "openssl",
+    "libarchive",
+    "util-linux",
+    "btrfs-progs",
+    "dosfstools",
+    "cryptsetup",
+    "pacman",
+    "gnupg",
+    "systemd",
+    "networkmanager",
+    "limine",
+    "mkinitcpio",
+    "e2fsprogs",
+    "ntfsprogs"
+  ],
+  "resources": {
+    "packaging/rust/live/ui-network": {
+      "target": "usr/lib/enzimos-installer/ui-network.sh",
+      "mode": 493
+    },
+    "packaging/rust/live/ui-partition": {
+      "target": "usr/lib/enzimos-installer/ui-partition.sh",
+      "mode": 493
+    },
+    "packaging/rust/live/ui-install": {
+      "target": "usr/lib/enzimos-installer/ui-install.sh",
+      "mode": 493
+    }
+  }
+}

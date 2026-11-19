@@ -1,0 +1,7 @@
+[Unit]
+Description=Refresh the graphical boot menu when boot entries change
+[Path]
+PathChanged=/boot/loader/entries
+PathChanged=/boot/loader/loader.conf
+[Install]
+WantedBy=multi-user.target

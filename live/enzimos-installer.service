@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# The text installer on the screen (unattended with an answer volume, or enzimos.text).
+[Unit]
+Description=enzimOS installer (text)
+Conflicts=getty@tty1.service enzimos-installer-ui.service
+After=systemd-udevd.service systemd-user-sessions.service
+OnFailure=poweroff.target
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /usr/lib/enzimos-installer/enzimos-install.sh
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TimeoutStartSec=infinity
+# Interactive failures (no answer volume) keep the error on screen until the
+# user presses Enter; unattended runs power off at once for the harness.
+ExecStopPost=/usr/bin/bash -c 'if [[ $$SERVICE_RESULT != success ]] && [[ -z $$(/usr/bin/blkid -L ENZIMOS_ANSWERS 2>/dev/null) ]]; then printf "\nInstallation failed; the reason is shown above. Press Enter to power off.\n"; read -r _ || true; fi'
+TimeoutStopSec=infinity

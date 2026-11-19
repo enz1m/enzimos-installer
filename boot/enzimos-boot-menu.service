@@ -1,0 +1,6 @@
+[Unit]
+Description=Build graphical boot choices from the selected enzimOS generation
+After=local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/enzimos-installer/enzimos-installer-native boot-menu

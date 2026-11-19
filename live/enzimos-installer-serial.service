@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+# The text installer dialogue on the first serial port, beside the graphical installer.
+[Unit]
+Description=enzimOS installer (serial console)
+After=systemd-udevd.service
+[Service]
+Type=oneshot
+Environment=ENZIMOS_SERIAL_ONLY=1
+ExecStart=/usr/bin/bash /usr/lib/enzimos-installer/enzimos-install.sh
+StandardInput=null
+StandardOutput=journal
+TimeoutStartSec=infinity

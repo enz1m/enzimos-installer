@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "inventory_sha256": "db13f8768eb6dc40791f37758bf72a94a0a385759967d8bd0ef85e57ac74a32f",
+  "device_id": "fictional-disk",
+  "loader": "systemd-boot",
+  "secure_boot": "enabled",
+  "encryption": {
+    "kind": "luks2",
+    "explicit_opt_out": false
+  },
+  "root": {
+    "filesystem": "btrfs",
+    "compression": true,
+    "separate_home_history": true,
+    "os_rollback_reverts_home": false
+  },
+  "swap": {
+    "kind": "btrfs-swapfile",
+    "separate_subvolume": true,
+    "nocow": true,
+    "compression": false,
+    "snapshots": false,
+    "backups": false,
+    "zram": true,
+    "zswap": false,
+    "inside_luks_when_enabled": true
+  },
+  "recovery": "independent-on-disk",
+  "allocations": [
+    {
+      "free_region": "free",
+      "role": "boot",
+      "start_bytes": 68719476736,
+      "size_bytes": 1073741824
+    },
+    {
+      "free_region": "free",
+      "role": "root",
+      "start_bytes": 69793218560,
+      "size_bytes": 64424509440
+    },
+    {
+      "free_region": "free",
+      "role": "recovery",
+      "start_bytes": 134217728000,
+      "size_bytes": 3221225472
+    }
+  ]
+}

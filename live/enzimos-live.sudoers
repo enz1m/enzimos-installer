@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: MIT
+# Live medium only: the installer UI's user may run the installer helper and restart.
+Defaults:enzimos-live !lecture, env_reset
+enzimos-live ALL=(root) NOPASSWD: /usr/lib/enzimos-installer/ui-install.sh, /usr/lib/enzimos-installer/ui-network.sh "", /usr/lib/enzimos-installer/ui-partition.sh /dev/*, /usr/bin/systemctl reboot, /usr/bin/systemctl poweroff
