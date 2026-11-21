@@ -75,6 +75,9 @@ pub fn locale_gen(input: &str, locale: &str) -> Result<String> {
     Ok(output)
 }
 pub fn mkinitcpio(input: &str, hooks: &str) -> Result<String> {
+    // Surface Laptop 1 and 2 connect the keyboard through the serial
+    // aggregator. Include that chain even when autodetect misses it.
+    const SURFACE_KEYBOARD: &str = "MODULES+=(pinctrl_sunrisepoint? intel_lpss? intel_lpss_pci? 8250_dw? surface_aggregator? surface_aggregator_registry? surface_aggregator_hub? surface_hid_core? surface_kbd?)";
     let allowed = "base systemd autodetect microcode modconf kms plymouth enzimos-recovery-mode keyboard sd-vconsole block sd-encrypt filesystems fsck";
     let mut names = BTreeSet::new();
     require(
@@ -103,6 +106,10 @@ pub fn mkinitcpio(input: &str, hooks: &str) -> Result<String> {
         output.push('\n');
     }
     require(found, "mkinitcpio hooks assignment missing")?;
+    if names.contains("sd-encrypt") && !input.lines().any(|line| line.trim() == SURFACE_KEYBOARD) {
+        output.push_str(SURFACE_KEYBOARD);
+        output.push('\n');
+    }
     Ok(output)
 }
 /// Enable only the official multilib section, refusing ambiguous duplicate blocks.

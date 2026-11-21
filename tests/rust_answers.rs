@@ -92,6 +92,24 @@ fn config_edits_refuse_duplicate_authority_and_native_firstboot_options_are_lite
     assert!(config::locale_gen("", "en_US.UTF-8\nroot").is_err());
     assert!(config::mkinitcpio("HOOKS=(base)\nHOOKS=(systemd)\n", "base systemd").is_err());
     assert!(config::mkinitcpio("HOOKS=(base)\n", "base $(foreign)").is_err());
+    let input = "MODULES=(btrfs)\nHOOKS=(base)\n";
+    let hooks = "base systemd autodetect keyboard block sd-encrypt filesystems";
+    let encrypted = config::mkinitcpio(input, hooks).unwrap();
+    assert!(encrypted.contains("MODULES=(btrfs)"));
+    let surface = encrypted
+        .lines()
+        .find(|line| line.starts_with("MODULES+=("))
+        .unwrap();
+    assert!(
+        surface.contains("8250_dw")
+            && surface.contains("surface_aggregator")
+            && surface.contains("surface_kbd")
+    );
+    assert_eq!(config::mkinitcpio(&encrypted, hooks).unwrap(), encrypted);
+    assert_eq!(
+        config::mkinitcpio(input, "base systemd").unwrap(),
+        "MODULES=(btrfs)\nHOOKS=(base systemd)\n"
+    );
     assert!(config::consoles("console=ttyS0,115200 console=ttyS0,115200", true).is_err());
     assert!(config::recovery_service("6.18.%n", "", false).is_err());
     assert!(config::recovery_service("6.18.1", "console=ttyS0\"", true).is_err());
