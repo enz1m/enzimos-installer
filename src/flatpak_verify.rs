@@ -10,11 +10,18 @@ use enzimos_platform::{Error, Result, files, json, mount_identity, require};
 use enzimos_policy::{flatpak_plan::Source, flatpak_state};
 use serde_json::Value;
 use std::{collections::BTreeMap, fs::File, os::fd::AsFd, path::Path};
-pub(crate) const STEPS: [&str; 5] = ["policy", "system-remote", "apps", "user-remote", "browser"];
+pub(crate) const STEPS: [&str; 6] = [
+    "policy",
+    "system-remote",
+    "apps",
+    "graphics",
+    "user-remote",
+    "browser",
+];
 pub(crate) fn validate(body: &Value, request: &Value, owner: &Value) -> Result<()> {
     json::fields(
         body,
-        "schema role phase request_sha256 owner inputs enzimos providers store username user_remote steps outputs deployments network_fallback installed_qualification",
+        "schema role phase request_sha256 owner inputs enzimos providers store username user_remote steps outputs deployments graphics network_fallback installed_qualification",
     )?;
     require(
         body["schema"] == 1
@@ -38,6 +45,14 @@ pub(crate) fn validate(body: &Value, request: &Value, owner: &Value) -> Result<(
             && steps.iter().zip(STEPS).all(|(a, b)| a == b)
             && (body["phase"] != "complete" || steps.len() == STEPS.len()),
         "offline Flatpak ordered steps differ",
+    )?;
+    crate::flatpak_graphics::validate(body)?;
+    require(
+        steps.len() >= 4
+            || body["graphics"]
+                .as_object()
+                .is_some_and(|rows| rows.is_empty()),
+        "offline Mesa GL extensions recorded before their step",
     )?;
     let origins = origins(body)?;
     json::fields(&body["providers"], "flatpak runuser env")?;
@@ -221,6 +236,7 @@ pub(crate) fn state(root: &File, body: &Value) -> Result<()> {
             app,
         )?;
     }
+    let graphics = crate::flatpak_graphics::capture(root, body)?;
     for (source, key, list, remote) in [
         (Source::Flathub, "inputs", install::APPS, install::REMOTE),
         (
@@ -247,6 +263,7 @@ pub(crate) fn state(root: &File, body: &Value) -> Result<()> {
             "Flatpak default browser associations differ",
         )?;
     }
+    crate::flatpak_graphics::recheck(root, &graphics)?;
     for (file, row) in active_links {
         let (_, actual) =
             enzimos_policy::file_overlay::capture(root, row["path"].as_str().unwrap(), 0)?;
@@ -381,7 +398,7 @@ mod tests {
             "request_sha256":enzimos_platform::json::fingerprint(&request).unwrap(),"owner":owner,
             "inputs":inputs("flathub", &[zen]),"enzimos":inputs("enzimos", &[calculator]),
             "providers":{"flatpak":{},"runuser":null,"env":null},"store":null,"username":"admin","user_remote":false,
-            "steps":[],"outputs":{},"deployments":{zen:row(zen, "flathub"),calculator:row(calculator, "enzimos")},
+            "steps":[],"outputs":{},"deployments":{zen:row(zen, "flathub"),calculator:row(calculator, "enzimos")},"graphics":{},
             "network_fallback":false,"installed_qualification":false});
         super::validate(&body, &request, &owner).unwrap();
         let mut changes = Vec::new();

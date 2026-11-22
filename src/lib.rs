@@ -23,6 +23,7 @@ mod disk_holders;
 mod disk_partitions;
 pub mod erase;
 mod flatpak_files;
+mod flatpak_graphics;
 mod flatpak_install;
 mod flatpak_media;
 mod flatpak_tools;

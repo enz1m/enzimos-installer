@@ -42,6 +42,79 @@ pub(crate) fn fresh(root: &File, path: &str) -> Result<()> {
         "fresh offline Flatpak installation cannot adopt an existing repository".into(),
     ))
 }
+/// Installs and records the Mesa GL refs for the installed Flathub runtimes.
+fn graphics(
+    context: &Received,
+    media: &Admitted,
+    prepared: &Prepared,
+    enzimos: Option<&Prepared>,
+    tools: &Tools,
+    body: &mut Value,
+) -> Result<()> {
+    use crate::flatpak_graphics as gl;
+    let mut chosen = BTreeMap::new();
+    for sideload in std::iter::once(prepared).chain(enzimos) {
+        let offered = gl::offered(&media.media, sideload)?;
+        if offered.is_empty() {
+            continue;
+        }
+        let listing = tools.system(context, media, sideload, &gl::LISTING, &[])?;
+        let selected = gl::select(
+            &gl::installed(&listing)?,
+            &offered,
+            &chosen.keys().cloned().collect(),
+        );
+        if selected.is_empty() {
+            continue;
+        }
+        let refs = selected
+            .keys()
+            .map(|name| format!("runtime/{name}"))
+            .collect::<Vec<_>>();
+        let mut arguments = vec![
+            "install",
+            "--system",
+            "--noninteractive",
+            "--no-related",
+            "--no-deps",
+            "--sideload-repo",
+            "@fd-dir:2",
+            "flathub",
+        ];
+        arguments.extend(refs.iter().map(String::as_str));
+        tools.system(
+            context,
+            media,
+            sideload,
+            &arguments,
+            &[sideload.repo.as_fd()],
+        )?;
+        for (name, commit) in selected {
+            chosen.insert(name, (commit, sideload.layout.source));
+        }
+    }
+    if chosen.is_empty() {
+        return Ok(());
+    }
+    let listing = tools.system(context, media, prepared, &gl::LISTING, &[])?;
+    gl::confirm(
+        &gl::installed(&listing)?,
+        &chosen
+            .iter()
+            .map(|(name, (commit, _))| (name.clone(), commit.clone()))
+            .collect(),
+    )?;
+    for (name, (commit, source)) in chosen {
+        let (_, active) =
+            enzimos_policy::file_overlay::capture(&context.target, &gl::link(&name), 0)?;
+        require(
+            active["target"] == commit.as_str(),
+            "offline Mesa GL extension active deployment differs from its sideload commit",
+        )?;
+        body["graphics"][&name] = value!({"commit":commit,"source":source.name(),"active":active});
+    }
+    Ok(())
+}
 fn record(
     context: &Received,
     receipt: &mut crate::component_receipt::Receipt,
@@ -142,7 +215,7 @@ pub(crate) fn install(context: &Received, media: &Admitted) -> Result<Value> {
         fresh(&context.target, &user_repo)?;
     }
     let mut body = value!({"schema":1,"role":"fresh-offline-flatpaks","phase":"writing","request_sha256":json::fingerprint(&context.request)?,"owner":context.store.journal["owner"],
-        "inputs":prepared.receipt(),"enzimos":enzimos.map(Prepared::receipt),"providers":tools.receipt(),"store":store.as_ref().map(crate::install_boot_sources::Source::receipt),"username":source.answers.username,"user_remote":user_remote,"steps":[],"outputs":{},"deployments":{},"network_fallback":false,"installed_qualification":false});
+        "inputs":prepared.receipt(),"enzimos":enzimos.map(Prepared::receipt),"providers":tools.receipt(),"store":store.as_ref().map(crate::install_boot_sources::Source::receipt),"username":source.answers.username,"user_remote":user_remote,"steps":[],"outputs":{},"deployments":{},"graphics":{},"network_fallback":false,"installed_qualification":false});
     crate::flatpak_verify::validate(&body, &context.request, &context.store.journal["owner"])?;
     let mut receipt =
         crate::component_receipt::Receipt::create(context.store.directory(), RECORD, &body)?;
@@ -390,6 +463,18 @@ pub(crate) fn install(context: &Received, media: &Admitted) -> Result<Value> {
         &mut body,
         "apps",
     )?;
+    graphics(context, media, &prepared, enzimos, &tools, &mut body)?;
+    advance(
+        context,
+        media,
+        &prepared,
+        enzimos,
+        &tools,
+        &held,
+        &mut receipt,
+        &mut body,
+        "graphics",
+    )?;
     if user_remote {
         store.as_ref().unwrap().recheck(&context.target)?;
         tools.user(
@@ -462,6 +547,7 @@ pub(crate) fn install(context: &Received, media: &Admitted) -> Result<Value> {
         "browser",
     )?;
     crate::flatpak_verify::state(&context.target, &body)?;
+    let graphics_links = crate::flatpak_graphics::capture(&context.target, &body)?;
     if let Some(store) = store {
         store.recheck(&context.target)?;
     }
@@ -471,6 +557,7 @@ pub(crate) fn install(context: &Received, media: &Admitted) -> Result<Value> {
         enzimos.recheck(&media.media)?;
     }
     held.recheck(&context.target)?;
+    crate::flatpak_graphics::recheck(&context.target, &graphics_links)?;
     for (link, row) in active_links {
         let (_, actual) = enzimos_policy::file_overlay::capture(
             &context.target,
