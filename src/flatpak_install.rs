@@ -357,35 +357,36 @@ pub(crate) fn install(context: &Received, media: &Admitted) -> Result<Value> {
         &mut body,
         "system-remote",
     )?;
-    let refs = prepared
-        .apps
-        .iter()
-        .map(|id| format!("app/{id}/x86_64/stable"))
-        .collect::<Vec<_>>();
-    let mut arguments = vec![
-        "install",
-        "--system",
-        "--noninteractive",
-        "--sideload-repo",
-        "@fd-dir:2",
-        "flathub",
-    ];
-    arguments.extend(refs.iter().map(String::as_str));
-    tools.system(
-        context,
-        media,
-        &prepared,
-        &arguments,
-        &[prepared.repo.as_fd()],
-    )?;
+    if !prepared.apps.is_empty() {
+        let refs = prepared
+            .apps
+            .iter()
+            .map(|id| format!("app/{id}/x86_64/stable"))
+            .collect::<Vec<_>>();
+        let mut arguments = vec![
+            "install",
+            "--system",
+            "--noninteractive",
+            "--sideload-repo",
+            "@fd-dir:2",
+            "flathub",
+        ];
+        arguments.extend(refs.iter().map(String::as_str));
+        tools.system(
+            context,
+            media,
+            &prepared,
+            &arguments,
+            &[prepared.repo.as_fd()],
+        )?;
+    }
     let mut expected = prepared
         .apps
         .iter()
         .map(|app| (app.clone(), Source::Flathub))
         .collect::<BTreeMap<_, _>>();
     if let Some(enzimos) = enzimos {
-        // Flathub's apps brought the runtime these apps need, so the enzimOS
-        // sideload repository alone completes this offline install.
+        // The enzimOS sideload includes its Flathub runtime dependencies.
         let refs = enzimos
             .apps
             .iter()

@@ -33,7 +33,7 @@ pub(crate) const ENZIMOS: Layout = Layout {
     declaration: "enzimos_flatpaks",
 };
 impl Layout {
-    fn member(&self, leaf: &str) -> String {
+    pub(crate) fn member(&self, leaf: &str) -> String {
         format!("{}/{leaf}", self.directory)
     }
     /// Media without the declaration (older media) carry no apps from this remote.
@@ -45,6 +45,23 @@ impl Layout {
                 .ok_or_else(|| Error("offline application declaration type".into()))?),
         }
     }
+}
+
+pub(crate) fn has_offline_apps(manifest: &Value) -> Result<bool> {
+    let flathub = FLATHUB.declared(manifest)?;
+    let enzimos = ENZIMOS.declared(manifest)?;
+    Ok(!flathub.is_empty() || !enzimos.is_empty())
+}
+
+pub(crate) fn applications(source: Source, bytes: &[u8], declared: &Value) -> Result<Vec<String>> {
+    if source == Source::Flathub && declared.as_array().is_some_and(Vec::is_empty) {
+        require(
+            bytes.is_empty(),
+            "Flathub runtime source must have an empty app list",
+        )?;
+        return Ok(Vec::new());
+    }
+    flatpak_plan::applications(source, bytes, declared)
 }
 pub(crate) struct Prepared {
     pub layout: &'static Layout,
@@ -66,7 +83,9 @@ impl Prepared {
     ) -> Result<Option<Self>> {
         let declared = layout.declared(manifest)?;
         let prefix = layout.member("");
-        if declared.is_empty() {
+        let supplies_runtimes =
+            layout.source == Source::Flathub && !ENZIMOS.declared(manifest)?.is_empty();
+        if declared.is_empty() && !supplies_runtimes {
             require(
                 !media.members.keys().any(|n| n.starts_with(&prefix)),
                 "undeclared offline application media",
@@ -79,7 +98,7 @@ impl Prepared {
         )?;
         let list = media.member(&layout.member("apps.txt"), 64 * 1024)?;
         let remote = media.member(&layout.member(layout.remote_file), 128 * 1024)?;
-        let apps = flatpak_plan::applications(
+        let apps = applications(
             layout.source,
             &files::read_file(&list, 64 * 1024, Some(0), true)?,
             &Value::from(declared),

@@ -17,15 +17,17 @@ pub fn manifest(body: &Value, members: &BTreeMap<String, String>, now_millis: u6
     if body.get("recovery_env").is_some() {
         fields.push_str(" recovery_env");
     }
-    // The enzimOS Flatpak source; its apps need Flathub's runtime source too.
-    if let Some(apps) = body.get("enzimos_flatpaks") {
+    if body.get("enzimos_flatpaks").is_some() {
+        use crate::flatpak_media::{ENZIMOS, FLATHUB};
         fields.push_str(" enzimos_flatpaks");
-        require(
-            apps.as_array().is_some_and(|apps| {
-                apps.is_empty() || body["flatpaks"].as_array().is_some_and(|f| !f.is_empty())
-            }),
-            "enzimOS Flatpak source without the Flathub runtime source",
-        )?;
+        if !ENZIMOS.declared(body)?.is_empty() && FLATHUB.declared(body)?.is_empty() {
+            require(
+                ["apps.txt", FLATHUB.remote_file, "repo/config"]
+                    .iter()
+                    .all(|path| members.contains_key(&FLATHUB.member(path))),
+                "enzimOS Flatpak source without the Flathub runtime source",
+            )?;
+        }
     }
     json::fields(body, &fields)?;
     require(

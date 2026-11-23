@@ -2,7 +2,7 @@
 //! Independent completion checks after the exact worker/cgroup has stopped.
 use crate::{
     flatpak_defaults, flatpak_install as install,
-    flatpak_media::{ENZIMOS, FLATHUB, Prepared},
+    flatpak_media::{ENZIMOS, FLATHUB, Prepared, applications, has_offline_apps},
     media_packages::Admitted,
     target_storage::Target,
 };
@@ -130,7 +130,8 @@ fn origins(body: &Value) -> Result<BTreeMap<String, Source>> {
             .as_array()
             .ok_or_else(|| Error("offline Flatpak apps missing".into()))?;
         require(
-            !apps.is_empty() && apps.len() <= 128,
+            apps.len() <= 128
+                && (!apps.is_empty() || (source == Source::Flathub && !body["enzimos"].is_null())),
             "offline Flatpak app selection ambiguous",
         )?;
         for app in apps {
@@ -250,7 +251,7 @@ pub(crate) fn state(root: &File, body: &Value) -> Result<()> {
             continue;
         }
         let list = crate::flatpak_files::observe(root, list, 0, true)?.2;
-        enzimos_policy::flatpak_plan::applications(source, &list, &body[key]["apps"])?;
+        applications(source, &list, &body[key]["apps"])?;
         let remote = crate::flatpak_files::observe(root, remote, 0, true)?.2;
         require(
             enzimos_policy::flatpak_plan::remote(source, &remote)? == body[key]["policy"],
@@ -283,11 +284,7 @@ pub(crate) fn completed(
 ) -> Result<Option<Value>> {
     target.recheck()?;
     media.recheck()?;
-    let needed = target.source().answers.flatpaks
-        && !media.manifest["flatpaks"]
-            .as_array()
-            .ok_or_else(|| Error("Flatpak declaration type".into()))?
-            .is_empty();
+    let needed = target.source().answers.flatpaks && has_offline_apps(&media.manifest)?;
     let record = files::optional_relative(directory, Path::new(install::RECORD))?;
     if !needed {
         require(record.is_none(), "unexpected Flatpak worker receipt")?;
@@ -402,6 +399,13 @@ mod tests {
             "steps":[],"outputs":{},"deployments":{zen:row(zen, "flathub"),calculator:row(calculator, "enzimos")},"graphics":{},
             "network_fallback":false,"installed_qualification":false});
         super::validate(&body, &request, &owner).unwrap();
+        let mut runtimes_only = body.clone();
+        runtimes_only["inputs"]["apps"] = json!([]);
+        runtimes_only["deployments"]
+            .as_object_mut()
+            .unwrap()
+            .remove(zen);
+        super::validate(&runtimes_only, &request, &owner).unwrap();
         let mut changes = Vec::new();
         let mut wrong_origin = body.clone();
         wrong_origin["deployments"][calculator] = row(calculator, "flathub");

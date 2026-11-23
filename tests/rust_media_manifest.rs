@@ -153,6 +153,15 @@ fn development_media_requires_a_review_record_and_declared_native_package_digest
     let mut fleet = original.clone();
     fleet["enzimos_flatpaks"] = json!(["org.enzimos.Calculator"]);
     assert!(media_plan::manifest(&fleet, &members, now).is_err());
+    let mut runtime_members = members.clone();
+    for path in [
+        "flatpak/apps.txt",
+        "flatpak/flathub.flatpakrepo",
+        "flatpak/repo/config",
+    ] {
+        runtime_members.insert(path.into(), "b".repeat(64));
+    }
+    assert!(media_plan::manifest(&fleet, &runtime_members, now).is_ok());
     fleet["flatpaks"] = json!(["app.zen_browser.zen"]);
     assert!(media_plan::manifest(&fleet, &members, now).is_ok());
     fleet["enzimos_flatpaks"] = json!("org.enzimos.Calculator");

@@ -94,6 +94,7 @@ fn run_with_lock(
     session.recheck(source)?;
     storage_area.recheck()?;
     target_area.recheck()?;
+    let offline_apps = crate::flatpak_media::has_offline_apps(&media.manifest)?;
     let mut store = crate::install_coordinator_record::Store::create(&path, initial)?;
     if graphical {
         crate::install_ui::progress(crate::install_ui::Stage::Disk)?;
@@ -181,7 +182,7 @@ fn run_with_lock(
         value!({"schema":1,"status":"bootable-base-prepared","package_journal":package,
         "desktop_pending":false,"flatpaks_pending":false,
         "desktop_configured":source.answers.desktop,
-        "flatpak_status":if !source.answers.flatpaks {"not-requested"} else if media.manifest["flatpaks"].as_array().unwrap().is_empty() {"no-offline-media"} else {"provisioned"},
+        "flatpak_status":if !source.answers.flatpaks {"not-requested"} else if !offline_apps {"no-offline-media"} else {"provisioned"},
         "finish_requested":finish,"finish_receipt":finish_receipt,
         "installed_qualification":false,"installer_runtime":"rust"}),
     )
