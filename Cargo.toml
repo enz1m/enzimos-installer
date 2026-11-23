@@ -7,9 +7,9 @@ license = "MIT"
 publish = false
 
 [dependencies]
-enzimos-platform = { git = "https://github.com/enz1m/enzimos-packages.git", rev = "cfe4292cf83f8987f757c4f411a646e64722003a" }
-enzimos-policy = { git = "https://github.com/enz1m/enzimos-packages.git", rev = "cfe4292cf83f8987f757c4f411a646e64722003a" }
-enzimos-system-backend = { git = "https://github.com/enz1m/enzimos-packages.git", rev = "cfe4292cf83f8987f757c4f411a646e64722003a", default-features = false, features = ["native-worker"] }
+enzimos-platform = { git = "https://github.com/enz1m/enzimos-packages.git", rev = "97a249a18108f30a033220b6555984bdfc476228" }
+enzimos-policy = { git = "https://github.com/enz1m/enzimos-packages.git", rev = "97a249a18108f30a033220b6555984bdfc476228" }
+enzimos-system-backend = { git = "https://github.com/enz1m/enzimos-packages.git", rev = "97a249a18108f30a033220b6555984bdfc476228", default-features = false, features = ["native-worker"] }
 libc = "0.2"
 serde_json = "1"
 zeroize = "1"

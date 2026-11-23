@@ -181,7 +181,11 @@ fn expected(body: &Value, has_defaults: bool) -> Result<BTreeMap<String, (u32, b
         let username = body["username"]
             .as_str()
             .ok_or_else(|| Error("Flatpak user name missing".into()))?;
-        for leaf in ["config", "flathub.trustedkeys.gpg"] {
+        let mut files = vec!["config", "flathub.trustedkeys.gpg"];
+        if !body["enzimos"].is_null() {
+            files.push("enzimos.trustedkeys.gpg");
+        }
+        for leaf in files {
             names.insert(
                 format!("home/{username}/.local/share/flatpak/repo/{leaf}"),
                 (1000, true),
@@ -214,7 +218,7 @@ pub(crate) fn state(root: &File, body: &Value) -> Result<()> {
         );
         flatpak_state::remote(
             &crate::flatpak_files::observe(root, &name, 1000, true)?.2,
-            &[Source::Flathub],
+            system,
         )?;
     }
     for (app, row) in body["deployments"].as_object().unwrap() {

@@ -477,34 +477,51 @@ pub(crate) fn install(context: &Received, media: &Admitted) -> Result<Value> {
     )?;
     if user_remote {
         store.as_ref().unwrap().recheck(&context.target)?;
-        tools.user(
-            context,
-            media,
-            &prepared,
-            &[
-                "remote-add",
-                "--user",
-                "--if-not-exists",
-                "--from",
-                "--no-follow_redirect",
-                "--no-authenticator-install",
-                "flathub",
-                &remote_path,
-            ],
-        )?;
-        tools.user(
-            context,
-            media,
-            &prepared,
-            &[
-                "remote-modify",
-                "--user",
-                "--collection-id=org.flathub.Stable",
-                "--no-follow-redirect",
-                "--no-authenticator-install",
-                "flathub",
-            ],
-        )?;
+        for sideload in std::iter::once(&prepared).chain(enzimos) {
+            let source = sideload.layout.source;
+            let descriptor = if source == Source::Flathub {
+                REMOTE
+            } else {
+                ENZIMOS_REMOTE
+            };
+            let path = format!("/{descriptor}");
+            let collection = format!("--collection-id={}", source.collection());
+            tools.user(
+                context,
+                media,
+                sideload,
+                &[
+                    "remote-add",
+                    "--user",
+                    "--if-not-exists",
+                    "--from",
+                    "--no-follow_redirect",
+                    "--no-authenticator-install",
+                    source.name(),
+                    &path,
+                ],
+            )?;
+            tools.user(
+                context,
+                media,
+                sideload,
+                &[
+                    "remote-modify",
+                    "--user",
+                    &collection,
+                    "--no-follow-redirect",
+                    "--no-authenticator-install",
+                    source.name(),
+                ],
+            )?;
+            held.add(
+                &context.target,
+                &format!("{user_repo}/{}.trustedkeys.gpg", source.name()),
+                1000,
+                true,
+                &mut body,
+            )?;
+        }
         let bytes = held.add(
             &context.target,
             &format!("{user_repo}/config"),
@@ -512,14 +529,7 @@ pub(crate) fn install(context: &Received, media: &Admitted) -> Result<Value> {
             true,
             &mut body,
         )?;
-        flatpak_state::remote(&bytes, &[Source::Flathub])?;
-        held.add(
-            &context.target,
-            &format!("{user_repo}/flathub.trustedkeys.gpg"),
-            1000,
-            true,
-            &mut body,
-        )?;
+        flatpak_state::remote(&bytes, &sources)?;
     }
     advance(
         context,
