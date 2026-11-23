@@ -22,6 +22,7 @@ pub mod disk_guard;
 mod disk_holders;
 mod disk_partitions;
 pub mod erase;
+mod flatpak_defaults;
 mod flatpak_files;
 mod flatpak_graphics;
 mod flatpak_install;

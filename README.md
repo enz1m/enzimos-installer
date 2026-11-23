@@ -18,6 +18,10 @@ from the reviewed plan. Alongside installation uses `sfdisk` so it can place
 new partitions at the exact offsets the user reviewed. The backend checks
 the resulting layout before it continues.
 
+When the offline app fleet is selected, the installer sets system defaults for
+the browser, calendar, documents, audio, images and video based on the apps it
+installed. Individual users can change those defaults in their own session.
+
 ## Repository layout
 
 - [`src/`](src/) contains the backend and package worker.

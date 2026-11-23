@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Independent completion checks after the exact worker/cgroup has stopped.
 use crate::{
-    flatpak_install as install,
+    flatpak_defaults, flatpak_install as install,
     flatpak_media::{ENZIMOS, FLATHUB, Prepared},
     media_packages::Admitted,
     target_storage::Target,
@@ -16,7 +16,7 @@ pub(crate) const STEPS: [&str; 6] = [
     "apps",
     "graphics",
     "user-remote",
-    "browser",
+    "default-applications",
 ];
 pub(crate) fn validate(body: &Value, request: &Value, owner: &Value) -> Result<()> {
     json::fields(
@@ -98,7 +98,10 @@ pub(crate) fn validate(body: &Value, request: &Value, owner: &Value) -> Result<(
     let outputs = body["outputs"]
         .as_object()
         .ok_or_else(|| Error("offline Flatpak output registry type".into()))?;
-    let expected = expected(body)?;
+    let expected = expected(
+        body,
+        flatpak_defaults::mimeapps(|app| origins.contains_key(app)).is_some(),
+    )?;
     require(
         outputs.keys().all(|s| expected.contains_key(s))
             && (body["phase"] != "complete" || outputs.keys().eq(expected.keys())),
@@ -143,7 +146,7 @@ fn origins(body: &Value) -> Result<BTreeMap<String, Source>> {
     }
     Ok(origins)
 }
-fn expected(body: &Value) -> Result<BTreeMap<String, (u32, bool)>> {
+fn expected(body: &Value, has_defaults: bool) -> Result<BTreeMap<String, (u32, bool)>> {
     let mut names = BTreeMap::from([
         (install::REMOTE.into(), (0, true)),
         (install::APPS.into(), (0, true)),
@@ -184,18 +187,15 @@ fn expected(body: &Value) -> Result<BTreeMap<String, (u32, bool)>> {
             );
         }
     }
-    if body["inputs"]["apps"]
-        .as_array()
-        .ok_or_else(|| Error("Flatpak apps missing".into()))?
-        .iter()
-        .any(|app| app == "app.zen_browser.zen")
-    {
-        names.insert(install::BROWSER.into(), (0, true));
+    if has_defaults {
+        names.insert(flatpak_defaults::PATH.into(), (0, true));
     }
     Ok(names)
 }
 pub(crate) fn state(root: &File, body: &Value) -> Result<()> {
-    let originals = crate::flatpak_files::verify(root, body, &expected(body)?)?;
+    let origins = origins(body)?;
+    let defaults = flatpak_defaults::mimeapps(|app| origins.contains_key(app));
+    let originals = crate::flatpak_files::verify(root, body, &expected(body, defaults.is_some())?)?;
     let mut active_links = Vec::new();
     let system = if body["enzimos"].is_null() {
         &[Source::Flathub][..]
@@ -257,10 +257,11 @@ pub(crate) fn state(root: &File, body: &Value) -> Result<()> {
             "published Flatpak remote differs from original ISO signing policy",
         )?;
     }
-    if expected(body)?.contains_key(install::BROWSER) {
+    if let Some(defaults) = defaults {
         require(
-            crate::flatpak_files::observe(root, install::BROWSER, 0, true)?.2 == install::MIME,
-            "Flatpak default browser associations differ",
+            crate::flatpak_files::observe(root, flatpak_defaults::PATH, 0, true)?.2
+                == defaults.as_bytes(),
+            "offline default application associations differ",
         )?;
     }
     crate::flatpak_graphics::recheck(root, &graphics)?;

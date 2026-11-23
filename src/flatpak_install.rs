@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! One original supervised offline attempt; a partial intent is never resumed.
 use crate::{
+    flatpak_defaults,
     flatpak_files::Held,
     flatpak_media::{ENZIMOS, FLATHUB, Prepared},
     flatpak_tools::Tools,
@@ -23,8 +24,6 @@ pub(crate) const REMOTE: &str = "usr/share/enzimos/flathub.flatpakrepo";
 pub(crate) const APPS: &str = "usr/share/enzimos/default-flatpaks.txt";
 pub(crate) const ENZIMOS_REMOTE: &str = "usr/share/enzimos/enzimos.flatpakrepo";
 pub(crate) const ENZIMOS_APPS: &str = "usr/share/enzimos/enzimos-flatpaks.txt";
-pub(crate) const BROWSER: &str = "etc/xdg/mimeapps.list";
-pub(crate) const MIME:&[u8] = b"[Default Applications]\nx-scheme-handler/http=app.zen_browser.zen.desktop\nx-scheme-handler/https=app.zen_browser.zen.desktop\ntext/html=app.zen_browser.zen.desktop\napplication/xhtml+xml=app.zen_browser.zen.desktop\n";
 pub(crate) fn fresh(root: &File, path: &str) -> Result<()> {
     crate::media_manifest::relative(path)?;
     let mut current = root.try_clone()?;
@@ -532,8 +531,15 @@ pub(crate) fn install(context: &Received, media: &Admitted) -> Result<Value> {
         &mut body,
         "user-remote",
     )?;
-    if prepared.apps.iter().any(|app| app == "app.zen_browser.zen") {
-        publish(context, &mut held, &mut body, BROWSER, MIME, true)?;
+    if let Some(defaults) = flatpak_defaults::mimeapps(|app| expected.contains_key(app)) {
+        publish(
+            context,
+            &mut held,
+            &mut body,
+            flatpak_defaults::PATH,
+            defaults.as_bytes(),
+            true,
+        )?;
     }
     advance(
         context,
@@ -544,7 +550,7 @@ pub(crate) fn install(context: &Received, media: &Admitted) -> Result<Value> {
         &held,
         &mut receipt,
         &mut body,
-        "browser",
+        "default-applications",
     )?;
     crate::flatpak_verify::state(&context.target, &body)?;
     let graphics_links = crate::flatpak_graphics::capture(&context.target, &body)?;
