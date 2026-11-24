@@ -113,6 +113,15 @@ fn native_offline_arguments_cannot_select_network_sync_or_redirect_payload_paths
         )
         .is_err()
     );
+    let fleet = (0..36).map(|i| format!("native-{i}.pkg.tar.zst")).collect::<Vec<String>>();
+    assert_eq!(
+        native_package_body::arguments(Path::new(&directory), &fleet).unwrap().len(),
+        10 + fleet.len()
+    );
+    let oversized = (0..=native_package_body::MAX_NATIVE_PACKAGES)
+        .map(|i| format!("native-{i}.pkg.tar.zst"))
+        .collect::<Vec<String>>();
+    assert!(native_package_body::arguments(Path::new(&directory), &oversized).is_err());
     for files in [
         vec!["../../foreign.pkg.tar.zst".into()],
         vec!["--sync".into()],

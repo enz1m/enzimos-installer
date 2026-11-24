@@ -40,6 +40,9 @@ pub fn expected(media: &Admitted, operation: &str) -> Result<BTreeMap<String, St
     }
     Ok(expected)
 }
+/// Native packages one offline transaction may install. The full media carry
+/// about 35: policy, runtimes, services, applications and the local AI stack.
+pub const MAX_NATIVE_PACKAGES: usize = 64;
 pub fn arguments(directory: &Path, files: &[String]) -> Result<Vec<String>> {
     // A fixed private job directory, never a caller-supplied pacman option/path.
     let parent = directory
@@ -55,7 +58,7 @@ pub fn arguments(directory: &Path, files: &[String]) -> Result<Vec<String>> {
                 .join(parent)
                 .join("packages")
             && !files.is_empty()
-            && files.len() <= 32,
+            && files.len() <= MAX_NATIVE_PACKAGES,
         "native package directory or selection bound",
     )?;
     require(
