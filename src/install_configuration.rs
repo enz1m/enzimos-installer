@@ -55,6 +55,19 @@ fn material_for(
         "etc/mkinitcpio.conf".into(),
         system_config::mkinitcpio(&read(root, "etc/mkinitcpio.conf")?, &result.hooks)?.into_bytes(),
     );
+    if result
+        .hooks
+        .split_whitespace()
+        .any(|hook| hook == "sd-encrypt")
+    {
+        result.files.insert(
+            format!(
+                "etc/initcpio/install/{}",
+                system_config::SURFACE_KEYBOARD_HOOK
+            ),
+            system_config::SURFACE_KEYBOARD_INSTALL.as_bytes().to_vec(),
+        );
+    }
     result.files.insert(
         "etc/pacman.conf".into(),
         system_config::multilib(&read(root, "etc/pacman.conf")?)?.into_bytes(),
@@ -185,6 +198,7 @@ pub fn validate(body: &Value, request: &Value, owner: &Value) -> Result<()> {
     }
     if !request["configuration"]["luks_uuid"].is_null() {
         names.push("etc/crypttab");
+        names.push("etc/initcpio/install/enzimos-surface-keyboard");
     }
     require(
         entries.len() == names.len() && names.iter().all(|n| entries.contains_key(*n)),

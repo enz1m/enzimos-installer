@@ -74,10 +74,22 @@ pub fn locale_gen(input: &str, locale: &str) -> Result<String> {
     }
     Ok(output)
 }
+/// The mkinitcpio hook that adds the Surface keyboard chain for the LUKS prompt.
+pub const SURFACE_KEYBOARD_HOOK: &str = "enzimos-surface-keyboard";
+/// Its install script, written to `etc/initcpio/install/`. `add_module` skips a
+/// missing optional module; `MODULES` entries would fail at every boot.
+pub const SURFACE_KEYBOARD_INSTALL: &str = "#!/bin/bash
+build() {
+    local module
+    for module in pinctrl_sunrisepoint intel_lpss intel_lpss_pci 8250_dw surface_aggregator \\
+        surface_aggregator_registry surface_aggregator_hub surface_hid_core surface_kbd; do
+        add_module \"$module?\"
+    done
+}
+help() { echo 'Surface keyboard for the disk unlock prompt.'; }
+";
+
 pub fn mkinitcpio(input: &str, hooks: &str) -> Result<String> {
-    // Surface Laptop 1 and 2 connect the keyboard through the serial
-    // aggregator. Include that chain even when autodetect misses it.
-    const SURFACE_KEYBOARD: &str = "MODULES+=(pinctrl_sunrisepoint? intel_lpss? intel_lpss_pci? 8250_dw? surface_aggregator? surface_aggregator_registry? surface_aggregator_hub? surface_hid_core? surface_kbd?)";
     let allowed = "base systemd autodetect microcode modconf kms plymouth enzimos-recovery-mode keyboard sd-vconsole block sd-encrypt filesystems fsck";
     let mut names = BTreeSet::new();
     require(
@@ -93,6 +105,11 @@ pub fn mkinitcpio(input: &str, hooks: &str) -> Result<String> {
         input.len() <= 1024 * 1024 && !input.contains('\0'),
         "mkinitcpio configuration bound",
     )?;
+    let hooks = if names.contains("sd-encrypt") {
+        hooks.replacen("keyboard", &format!("keyboard {SURFACE_KEYBOARD_HOOK}"), 1)
+    } else {
+        hooks.to_owned()
+    };
     let mut output = String::new();
     let mut found = false;
     for line in input.lines() {
@@ -100,16 +117,18 @@ pub fn mkinitcpio(input: &str, hooks: &str) -> Result<String> {
             require(!found, "duplicate mkinitcpio hook assignment")?;
             found = true;
             output.push_str(&format!("HOOKS=({hooks})"));
+        } else if line
+            .trim_start()
+            .starts_with("MODULES+=(pinctrl_sunrisepoint?")
+        {
+            // The earlier form of the Surface keyboard chain.
+            continue;
         } else {
             output.push_str(line);
         }
         output.push('\n');
     }
     require(found, "mkinitcpio hooks assignment missing")?;
-    if names.contains("sd-encrypt") && !input.lines().any(|line| line.trim() == SURFACE_KEYBOARD) {
-        output.push_str(SURFACE_KEYBOARD);
-        output.push('\n');
-    }
     Ok(output)
 }
 /// Enable only the official multilib section, refusing ambiguous duplicate blocks.

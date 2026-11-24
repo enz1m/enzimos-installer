@@ -96,15 +96,14 @@ fn config_edits_refuse_duplicate_authority_and_native_firstboot_options_are_lite
     let hooks = "base systemd autodetect keyboard block sd-encrypt filesystems";
     let encrypted = config::mkinitcpio(input, hooks).unwrap();
     assert!(encrypted.contains("MODULES=(btrfs)"));
-    let surface = encrypted
-        .lines()
-        .find(|line| line.starts_with("MODULES+=("))
-        .unwrap();
     assert!(
-        surface.contains("8250_dw")
-            && surface.contains("surface_aggregator")
-            && surface.contains("surface_kbd")
+        encrypted
+            .contains("HOOKS=(base systemd autodetect keyboard enzimos-surface-keyboard block")
     );
+    assert!(!encrypted.contains("MODULES+=("));
+    for module in ["8250_dw", "surface_aggregator", "surface_kbd"] {
+        assert!(config::SURFACE_KEYBOARD_INSTALL.contains(module));
+    }
     assert_eq!(config::mkinitcpio(&encrypted, hooks).unwrap(), encrypted);
     assert_eq!(
         config::mkinitcpio(input, "base systemd").unwrap(),
