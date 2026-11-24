@@ -201,6 +201,7 @@ fn tool(source: &Source, disk: &Disk, program: &str, args: &[&str], input: &[u8]
     let write = disk.begin_write(match program {
         "/usr/bin/wipefs" => "whole-disk-wipe",
         "/usr/bin/systemd-repart" => "whole-disk-gpt",
+        "/usr/bin/sfdisk" => "whole-disk-gpt",
         _ => return Err(Error("erase writer outside closed role registry".into())),
     })?;
     let output = process::run_with_fds(
@@ -332,6 +333,17 @@ pub(crate) fn apply_session(
                 &seed,
                 "@fd:0",
             ],
+            &[],
+        )?;
+        // repart marks the root for systemd-growfs whatever GrowFileSystem=
+        // says; growing the LUKS root at every boot can only fail.
+        session.recheck(source)?;
+        media.recheck()?;
+        tool(
+            source,
+            disk,
+            "/usr/bin/sfdisk",
+            &["--part-attrs", "@fd:0", "3", ""],
             &[],
         )?;
         let settled = process::run(
