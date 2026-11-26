@@ -56,5 +56,5 @@ hl.on("hyprland.start", function()
             float = true, center = true, size = string.format("%d %d", width, height), decorate = false })
     end
     hl.exec_cmd("/usr/bin/enzui-wallpaper 15171c fill /usr/share/enzui/assets/wallpapers/enzui-aurora.jpg fade")
-    hl.exec_cmd("/usr/bin/enzimos-installer $ENZIMOS_INSTALLER_ARGS; hyprctl dispatch 'hl.dsp.exit()'")
+    hl.exec_cmd("/usr/bin/enzimos-installer $ENZIMOS_INSTALLER_ARGS; \"${ENZUI_HYPR_CONTROL_BIN:-hyprctl}\" dispatch 'hl.dsp.exit()'")
 end)
