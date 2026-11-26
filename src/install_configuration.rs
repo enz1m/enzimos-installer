@@ -46,6 +46,7 @@ fn material_for(
         c["luks_uuid"].as_str(),
         &cmdline,
     )?;
+    crate::install_power_profile::add(&mut result.files);
     result.files.insert(
         "etc/locale.gen".into(),
         system_config::locale_gen(&read(root, "etc/locale.gen")?, &source.answers.locale)?
@@ -366,18 +367,22 @@ pub fn install(context: &Received, media: &Admitted, packages: Value) -> Result<
                 crate::install_config_tools::run(context, media, "/usr/bin/locale-gen", &[], &[])?;
             }
             "services" => {
+                let mut enable = vec![
+                    "--root",
+                    "/",
+                    "enable",
+                    "bluetooth.service",
+                    "power-profiles-daemon.service",
+                    "fwupd-refresh.timer",
+                ];
+                if crate::install_power_profile::selected(&material.files) {
+                    enable.push(crate::install_power_profile::UNIT);
+                }
                 crate::install_config_tools::run(
                     context,
                     media,
                     "/usr/bin/systemctl",
-                    &[
-                        "--root",
-                        "/",
-                        "enable",
-                        "bluetooth.service",
-                        "power-profiles-daemon.service",
-                        "fwupd-refresh.timer",
-                    ],
+                    &enable,
                     &[],
                 )?;
                 crate::install_config_tools::run(

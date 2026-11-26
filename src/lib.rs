@@ -55,6 +55,7 @@ pub mod install_configuration;
 pub mod install_coordinator;
 pub mod install_coordinator_record;
 mod install_finish;
+mod install_power_profile;
 mod install_session;
 pub mod install_ui;
 pub mod live_context;
