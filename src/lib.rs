@@ -89,6 +89,7 @@ pub mod root_prepare;
 pub mod setup;
 pub mod subvolume_prepare;
 pub mod system_config;
+mod surface_touch;
 pub mod target_storage;
 pub mod test_copy;
 pub mod unmount;

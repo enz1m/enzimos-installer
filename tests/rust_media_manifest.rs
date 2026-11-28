@@ -63,15 +63,35 @@ fn reviewed_epoch_filenames_preserve_exact_versions_and_reject_renamed_archives(
     )]);
     let manifest = json!({"package_count":1,"nvidia_conditional":[]});
     assert_eq!(
-        media_plan::pool(&base, &[], &declared, &observed, &manifest).unwrap(),
+        media_plan::pool(&base, &[], &[], &declared, &observed, &manifest).unwrap(),
         base
     );
     let wrong = "other-1:1.3.2-3-x86_64.pkg.tar.zst";
     let observed_wrong = BTreeMap::from([(wrong.into(), observed[filename].clone())]);
-    assert!(media_plan::pool(&[wrong.into()], &[], &declared, &observed_wrong, &manifest).is_err());
+    assert!(
+        media_plan::pool(
+            &[wrong.into()],
+            &[],
+            &[],
+            &declared,
+            &observed_wrong,
+            &manifest
+        )
+        .is_err()
+    );
     let omitted = "zlib-1.3.2-3-x86_64.pkg.tar.zst";
     let omitted_map = BTreeMap::from([(omitted.into(), observed[filename].clone())]);
-    assert!(media_plan::pool(&[omitted.into()], &[], &declared, &omitted_map, &manifest).is_ok());
+    assert!(
+        media_plan::pool(
+            &[omitted.into()],
+            &[],
+            &[],
+            &declared,
+            &omitted_map,
+            &manifest
+        )
+        .is_ok()
+    );
     for bad in [
         "../zlib-1:1.3.2-3-x86_64.pkg.tar.zst",
         "-zlib-1:1.3.2-3-x86_64.pkg.tar.zst",
@@ -105,7 +125,7 @@ fn archive_identities_and_conditional_driver_pool_must_match_the_complete_cohort
     }
     let manifest = json!({"package_count":5,"nvidia_conditional":media_plan::NVIDIA});
     assert_eq!(
-        media_plan::pool(&base, &conditional, &declared, &observed, &manifest)
+        media_plan::pool(&base, &conditional, &[], &declared, &observed, &manifest)
             .unwrap()
             .len(),
         5
@@ -121,10 +141,12 @@ fn archive_identities_and_conditional_driver_pool_must_match_the_complete_cohort
     assert!(media_plan::select(&base, &conditional[..3], true).is_err());
     let mut wrong = observed.clone();
     wrong.get_mut(&base[0]).unwrap()["version"] = json!("2");
-    assert!(media_plan::pool(&base, &conditional, &declared, &wrong, &manifest).is_err());
+    assert!(media_plan::pool(&base, &conditional, &[], &declared, &wrong, &manifest).is_err());
     let mut overlap = base.clone();
     overlap.push(conditional[0].clone());
-    assert!(media_plan::pool(&overlap, &conditional, &declared, &observed, &manifest).is_err());
+    assert!(
+        media_plan::pool(&overlap, &conditional, &[], &declared, &observed, &manifest).is_err()
+    );
     assert!(media_plan::declarations(b"a 1\na 2\n").is_err());
 }
 fn manifest() -> serde_json::Value {
@@ -215,4 +237,69 @@ fn desktop_xwayland_receipt_has_a_closed_shape_and_requires_an_overlay() {
     assert!(media_plan::manifest(&body, &members, 0).is_err());
     body["desktop_xwayland"] = json!(null);
     assert!(media_plan::manifest(&body, &members, 0).is_err());
+}
+
+#[test]
+fn surface_cohort_requires_both_matching_header_packages() {
+    let names = [
+        "linux",
+        "linux-lts",
+        "dkms",
+        "linux-headers",
+        "linux-lts-headers",
+    ];
+    let declared = names
+        .into_iter()
+        .map(|name| (name.into(), "1-1".into()))
+        .collect();
+    let filenames = names.map(|name| format!("{name}-1-1-x86_64.pkg.tar.zst"));
+    let observed = filenames
+        .iter()
+        .cloned()
+        .zip(names.map(|name| json!({"name":name,"version":"1-1"})))
+        .collect();
+    let media = json!({"package_count":5,"nvidia_conditional":[],
+        "surface_touch":{"arch_packages":["dkms","linux-headers","linux-lts-headers"]}});
+    assert!(
+        media_plan::pool(
+            &filenames[..2],
+            &[],
+            &filenames[2..],
+            &declared,
+            &observed,
+            &media
+        )
+        .is_ok()
+    );
+    assert!(
+        media_plan::pool(
+            &filenames[..3],
+            &[],
+            &filenames[3..],
+            &declared,
+            &observed,
+            &media
+        )
+        .is_err()
+    );
+
+    let mut declared = declared;
+    let mut observed = observed;
+    let mut filenames = filenames;
+    let header = "linux-lts-headers";
+    declared.insert(header.into(), "2-1".into());
+    observed.remove(&filenames[4]);
+    filenames[4] = format!("{header}-2-1-x86_64.pkg.tar.zst");
+    observed.insert(filenames[4].clone(), json!({"name":header,"version":"2-1"}));
+    assert!(
+        media_plan::pool(
+            &filenames[..2],
+            &[],
+            &filenames[2..],
+            &declared,
+            &observed,
+            &media
+        )
+        .is_err()
+    );
 }

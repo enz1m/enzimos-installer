@@ -14,7 +14,18 @@ const LEGACY_PAYLOAD: u64 = 17 * GIB;
 const FIELDS: &str = "base_bytes nvidia_bytes models_bytes desktop_bytes flatpak_bytes";
 
 pub(crate) fn validate(payload: &Value) -> Result<()> {
-    json::fields(payload, FIELDS)?;
+    if let Some(surface) = payload.get("surface_bytes") {
+        json::fields(
+            payload,
+            "base_bytes nvidia_bytes models_bytes desktop_bytes flatpak_bytes surface_bytes",
+        )?;
+        require(
+            surface.as_u64().is_some_and(|size| size <= 1024 * GIB),
+            "IPTS payload size out of range",
+        )?;
+    } else {
+        json::fields(payload, FIELDS)?;
+    }
     require(
         FIELDS.split_whitespace().all(|field| {
             payload[field]
@@ -28,6 +39,7 @@ pub(crate) fn validate(payload: &Value) -> Result<()> {
 fn minimum(
     payload: Option<&Value>,
     nvidia: bool,
+    surface: bool,
     desktop: bool,
     flatpaks: bool,
     swap_mib: u32,
@@ -38,6 +50,7 @@ fn minimum(
         bytes("base_bytes")
             + bytes("models_bytes")
             + if nvidia { bytes("nvidia_bytes") } else { 0 }
+            + if surface { bytes("surface_bytes") } else { 0 }
             + if desktop { bytes("desktop_bytes") } else { 0 }
             + if flatpaks { bytes("flatpak_bytes") } else { 0 }
     } else {
@@ -63,6 +76,10 @@ pub(crate) fn check(bytes: u64, media: &Admitted, answers: &Answers) -> Result<(
     let minimum = minimum(
         media.manifest.get("storage_payload"),
         nvidia,
+        media
+            .native
+            .iter()
+            .any(|package| package.declaration.name == crate::surface_touch::MODULE_PACKAGE),
         answers.desktop,
         answers.flatpaks,
         swap,
@@ -99,6 +116,7 @@ pub fn graphical_minimum() -> Result<u64> {
     minimum(
         manifest.get("storage_payload"),
         crate::media_packages::nvidia(crate::answers::Gpu::Auto)?,
+        manifest.get("surface_touch").is_some() && crate::surface_touch::present()?,
         true,
         true,
         crate::system_config::swap_size(None, crate::install_config_storage::memory_kib()?)?,
@@ -118,16 +136,30 @@ mod tests {
             "models_bytes": 2 * GIB,
             "desktop_bytes": GIB,
             "flatpak_bytes": 8 * GIB,
+            "surface_bytes": GIB,
         });
-        assert_eq!(minimum(Some(&payload), false, true, true, 8192)?, 36 * GIB);
-        assert_eq!(minimum(Some(&payload), true, true, true, 8192)?, 40 * GIB);
-        assert_eq!(minimum(Some(&payload), false, true, true, 1024)?, 29 * GIB);
         assert_eq!(
-            minimum(Some(&payload), false, false, false, 1024)?,
+            minimum(Some(&payload), false, false, true, true, 8192)?,
+            36 * GIB
+        );
+        assert_eq!(
+            minimum(Some(&payload), true, false, true, true, 8192)?,
+            40 * GIB
+        );
+        assert_eq!(
+            minimum(Some(&payload), false, false, true, true, 1024)?,
+            29 * GIB
+        );
+        assert_eq!(
+            minimum(Some(&payload), false, false, false, false, 1024)?,
             MIN_GEOMETRY
         );
-        assert!(minimum(Some(&Value::Null), false, true, true, 8192).is_err());
-        assert!(minimum(None, false, true, true, 8192)? > 24 * GIB);
+        assert_eq!(
+            minimum(Some(&payload), false, true, true, true, 8192)?,
+            37 * GIB
+        );
+        assert!(minimum(Some(&Value::Null), false, false, true, true, 8192).is_err());
+        assert!(minimum(None, false, false, true, true, 8192)? > 24 * GIB);
         Ok(())
     }
 }

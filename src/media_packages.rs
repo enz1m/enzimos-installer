@@ -88,7 +88,7 @@ impl Admitted {
             require(
                 selected == base
                     || media_plan::select(base, conditional, true).is_ok_and(|all| selected == all),
-                "worker selection differs from the complete reviewed base or NVIDIA cohort",
+                "worker selection differs from the reviewed hardware cohort",
             )?;
             Ok(selected.to_vec())
         })
@@ -116,9 +116,14 @@ impl Admitted {
         // Missing native worker bytes or an undeclared local package must fail
         // before the caller can publish any erase intent.
         let images = crate::package_preflight::Images::open()?;
+        let install_surface_touch =
+            manifest.get("surface_touch").is_some() && crate::surface_touch::present()?;
         let mut native = Vec::new();
         let mut native_names = BTreeSet::new();
         for declaration in crate::native_media::plan(&manifest, &media.members)? {
+            if declaration.name == crate::surface_touch::MODULE_PACKAGE && !install_surface_touch {
+                continue;
+            }
             let archive = media.member(&declaration.file, declaration.max_bytes)?;
             let identity = package_archive::identity(&archive)?;
             crate::native_media::identity(&declaration, &identity)?;
@@ -143,6 +148,11 @@ impl Admitted {
         let base = media_manifest::package_list(&media.read("package-files.txt", 1024 * 1024)?)?;
         let conditional =
             media_manifest::package_list(&media.read("nvidia-files.txt", 1024 * 1024)?)?;
+        let surface = if manifest.get("surface_touch").is_some() {
+            media_manifest::package_list(&media.read("surface-files.txt", 1024 * 1024)?)?
+        } else {
+            Vec::new()
+        };
         let declared = media_plan::declarations(&media.read("packages.txt", 1024 * 1024)?)?;
         crate::native_media::disjoint(
             &native.iter().map(|p| &p.declaration).collect::<Vec<_>>(),
@@ -151,10 +161,11 @@ impl Admitted {
         let filenames = base
             .iter()
             .chain(conditional.iter())
+            .chain(surface.iter())
             .cloned()
             .collect::<BTreeSet<_>>();
         require(
-            filenames.len() == base.len() + conditional.len()
+            filenames.len() == base.len() + conditional.len() + surface.len()
                 && filenames.len() <= 1024
                 && filenames.len() == declared.len()
                 && !base.is_empty(),
@@ -244,7 +255,18 @@ impl Admitted {
                 signature,
             });
         }
-        media_plan::pool(&base, &conditional, &declared, &observed, &manifest)?;
+        media_plan::pool(
+            &base,
+            &conditional,
+            &surface,
+            &declared,
+            &observed,
+            &manifest,
+        )?;
+        let mut base = base;
+        if install_surface_touch {
+            base.extend(surface);
+        }
         let selected = selection(&base, &conditional)?;
         crate::desktop_overlay::preflight(&media, &manifest)?;
         crate::flatpak_media::preflight(&media, &manifest)?;

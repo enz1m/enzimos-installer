@@ -96,6 +96,16 @@ pub fn manifest(body: &Value, members: &BTreeMap<String, String>, now_millis: u6
         fields.push_str(" desktop_xwayland");
         xwayland(body, receipt)?;
     }
+    if body.get("surface_touch").is_some() {
+        fields.push_str(" surface_touch");
+        require(
+            members.contains_key("surface-files.txt")
+                && body["storage_payload"]["surface_bytes"]
+                    .as_u64()
+                    .is_some_and(|bytes| bytes > 0),
+            "IPTS DKMS payload lacks its offline package list or storage accounting",
+        )?;
+    }
     if let Some(payload) = body.get("storage_payload") {
         fields.push_str(" storage_payload");
         crate::install_capacity::validate(payload)?;
@@ -182,6 +192,7 @@ pub fn declarations(bytes: &[u8]) -> Result<BTreeMap<String, String>> {
 pub fn pool(
     base: &[String],
     nvidia: &[String],
+    surface: &[String],
     declared: &BTreeMap<String, String>,
     observed: &BTreeMap<String, Value>,
     manifest: &Value,
@@ -189,11 +200,12 @@ pub fn pool(
     let files = base
         .iter()
         .chain(nvidia.iter())
+        .chain(surface.iter())
         .cloned()
         .collect::<BTreeSet<_>>();
     require(
         !base.is_empty()
-            && files.len() == base.len() + nvidia.len()
+            && files.len() == base.len() + nvidia.len() + surface.len()
             && files == observed.keys().cloned().collect()
             && files.len() == declared.len()
             && manifest["package_count"].as_u64() == Some(files.len() as u64),
@@ -201,6 +213,7 @@ pub fn pool(
     )?;
     let mut seen = BTreeSet::new();
     let mut conditional = BTreeSet::new();
+    let mut surface_names = BTreeSet::new();
     for (file, identity) in observed {
         json::fields(identity, "name version")?;
         let name = identity["name"]
@@ -227,11 +240,39 @@ pub fn pool(
         if nvidia.contains(file) {
             conditional.insert(name.to_owned());
         }
+        if surface.contains(file) {
+            surface_names.insert(name);
+        }
+        require(
+            manifest.get("surface_touch").is_none()
+                || !crate::surface_touch::REQUIRED_ARCH.contains(&name)
+                || surface.contains(file),
+            "IPTS build prerequisites must be hardware conditional",
+        )?;
     }
     require(
         manifest["nvidia_conditional"] == serde_json::json!(conditional.iter().collect::<Vec<_>>()),
         "NVIDIA package declaration differs",
     )?;
+    if let Some(row) = manifest.get("surface_touch") {
+        require(
+            row["arch_packages"] == serde_json::json!(surface_names)
+                && crate::surface_touch::REQUIRED_ARCH
+                    .iter()
+                    .all(|name| surface_names.contains(name)),
+            "IPTS conditional cohort differs or lacks DKMS and kernel headers",
+        )?;
+        for kernel in ["linux", "linux-lts"] {
+            require(
+                declared.get(kernel).is_some_and(|version| {
+                    declared.get(&format!("{kernel}-headers")) == Some(version)
+                }),
+                "IPTS kernel and header versions must match",
+            )?;
+        }
+    } else {
+        require(surface.is_empty(), "undeclared IPTS Arch cohort")?;
+    }
     if manifest.get("desktop_xwayland").is_some() {
         require(
             XWAYLAND_RUNTIME.iter().all(|name| seen.contains(name)),

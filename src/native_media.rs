@@ -166,6 +166,21 @@ pub fn plan(manifest: &Value, members: &BTreeMap<String, String>) -> Result<Vec<
             max * 1024 * 1024,
         )?;
     }
+    if let Some(row) = manifest.get("surface_touch") {
+        json::fields(row, "version sha256 arch_packages")?;
+        let version = row["version"]
+            .as_str()
+            .ok_or_else(|| Error("IPTS DKMS package version missing".into()))?;
+        add(
+            &mut rows,
+            row,
+            members,
+            "ipts-dkms.pkg.tar.zst".into(),
+            crate::surface_touch::MODULE_PACKAGE.into(),
+            Some(version.into()),
+            2 * 1024 * 1024,
+        )?;
+    }
     let apps = manifest["native_apps"]
         .as_object()
         .ok_or_else(|| Error("native application declarations shape".into()))?;
