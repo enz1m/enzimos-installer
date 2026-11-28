@@ -193,6 +193,10 @@ pub fn validate(body: &Value, request: &Value, owner: &Value) -> Result<()> {
     ];
     if attachment {
         names.push("etc/tmpfiles.d/enzimos-backup-source.conf");
+        let power_profile = crate::install_power_profile::UNIT_PATH;
+        if entries.contains_key(power_profile) {
+            names.push(power_profile);
+        }
     }
     if expanded {
         names.extend(["etc/pacman.conf", "etc/snap-pac.ini"]);

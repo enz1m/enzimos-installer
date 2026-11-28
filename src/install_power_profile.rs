@@ -9,13 +9,12 @@ use std::path::Path;
 
 /// The unit a battery-less fresh install enables.
 pub(crate) const UNIT: &str = "enzimos-initial-power-profile.service";
-const UNIT_PATH: &str = "etc/systemd/system/enzimos-initial-power-profile.service";
+pub(crate) const UNIT_PATH: &str = "etc/systemd/system/enzimos-initial-power-profile.service";
 const POWER_SUPPLY: &str = "/sys/class/power_supply";
 const UNIT_TEXT: &str = "\
 [Unit]
 Description=Use the performance power mode on a computer without a battery
 After=power-profiles-daemon.service
-Wants=power-profiles-daemon.service
 ConditionPathExists=!/var/lib/enzimos-initial-power-profile/done
 
 [Service]
@@ -26,7 +25,7 @@ ExecStart=-/usr/bin/busctl --timeout=30 call org.freedesktop.UPower.PowerProfile
 ExecStartPost=/usr/bin/touch /var/lib/enzimos-initial-power-profile/done
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=power-profiles-daemon.service
 ";
 
 /// Adds the first-boot unit to `files` when the installing computer has no system battery.

@@ -445,13 +445,6 @@ pub(crate) fn install(context: &Received, media: &Admitted) -> Result<Value> {
         let metadata = held.add(&context.target, &name, 0, false, &mut body)?;
         flatpak_state::metadata(&metadata, &app)?;
     }
-    held.add(
-        &context.target,
-        "var/lib/flatpak/repo/config",
-        0,
-        true,
-        &mut body,
-    )?;
     advance(
         context,
         media,
@@ -464,6 +457,15 @@ pub(crate) fn install(context: &Received, media: &Admitted) -> Result<Value> {
         "apps",
     )?;
     graphics(context, media, &prepared, enzimos, &tools, &mut body)?;
+    // The graphics transaction can rewrite OSTree's config.
+    let config = held.add(
+        &context.target,
+        "var/lib/flatpak/repo/config",
+        0,
+        true,
+        &mut body,
+    )?;
+    flatpak_state::remote(&config, &sources)?;
     advance(
         context,
         media,

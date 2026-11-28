@@ -9,6 +9,69 @@ pub const NVIDIA: [&str; 4] = [
     "nvidia-open-lts",
     "nvidia-utils",
 ];
+const XWAYLAND_RUNTIME: [&str; 5] = [
+    "xorg-xwayland",
+    "xorg-xkbcomp",
+    "xkeyboard-config",
+    "libbsd",
+    "libmd",
+];
+pub(crate) const XWAYLAND_FILES: [(&str, &str, u32); 2] = [
+    (
+        "usr/lib/enzui/compositor/hyprland-current-build/Xwayland",
+        "binary_sha256",
+        0o755,
+    ),
+    (
+        "usr/share/licenses/enzui-desktop/Xwayland-COPYING",
+        "notice_sha256",
+        0o644,
+    ),
+];
+
+fn sha256(hash: &str) -> bool {
+    hash.len() == 64
+        && hash
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn xwayland(body: &Value, receipt: &Value) -> Result<()> {
+    json::fields(
+        receipt,
+        "sha256 url version build_revision binary_sha256 notice_sha256",
+    )?;
+    let version = receipt["version"]
+        .as_str()
+        .filter(|v| {
+            v.len() <= 32
+                && v.split('.').count() == 3
+                && v.split('.')
+                    .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .ok_or_else(|| Error("Xwayland version encoding".into()))?;
+    require(
+        receipt["url"]
+            == format!("https://www.x.org/releases/individual/xserver/xwayland-{version}.tar.xz")
+            && ["sha256", "binary_sha256", "notice_sha256"]
+                .iter()
+                .all(|key| receipt[key].as_str().is_some_and(sha256)),
+        "Xwayland source URL or digest differs",
+    )?;
+    let revision = receipt["build_revision"].as_str().unwrap_or_default();
+    let mut fields = revision.split(' ');
+    require(
+        fields.next() == Some("xwayland")
+            && fields.next().is_some_and(sha256)
+            && fields.next().is_some_and(sha256)
+            && fields.next().is_none()
+            && body["desktop_preview_files"]
+                .as_u64()
+                .is_some_and(|count| count > 0),
+        "Xwayland build revision or desktop overlay missing",
+    )
+}
+
 pub fn manifest(body: &Value, members: &BTreeMap<String, String>, now_millis: u64) -> Result<()> {
     let mut fields = "native_apps activity_service ai_runtime secure_media schema label development_artifact release_authorized native_policy cohort_plan_sha256 package_count nvidia_conditional trust_lock_sha256 review_before kernel live installer_sha256 desktop_preview_files flatpaks update_client mcp_center backend".to_owned();
     if body.get("native_rust").is_some() {
@@ -28,6 +91,10 @@ pub fn manifest(body: &Value, members: &BTreeMap<String, String>, now_millis: u6
                 "enzimOS Flatpak source without the Flathub runtime source",
             )?;
         }
+    }
+    if let Some(receipt) = body.get("desktop_xwayland") {
+        fields.push_str(" desktop_xwayland");
+        xwayland(body, receipt)?;
     }
     json::fields(body, &fields)?;
     require(
@@ -53,13 +120,7 @@ pub fn manifest(body: &Value, members: &BTreeMap<String, String>, now_millis: u6
         let hash = body[key]
             .as_str()
             .ok_or_else(|| Error("media digest missing".into()))?;
-        require(
-            hash.len() == 64
-                && hash
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
-            "media digest encoding",
-        )?;
+        require(sha256(hash), "media digest encoding")?;
     }
     require(
         members
@@ -167,6 +228,12 @@ pub fn pool(
         manifest["nvidia_conditional"] == serde_json::json!(conditional.iter().collect::<Vec<_>>()),
         "NVIDIA package declaration differs",
     )?;
+    if manifest.get("desktop_xwayland").is_some() {
+        require(
+            XWAYLAND_RUNTIME.iter().all(|name| seen.contains(name)),
+            "Xwayland runtime package cohort incomplete",
+        )?;
+    }
     Ok(files.into_iter().collect())
 }
 pub fn select(base: &[String], nvidia: &[String], requested: bool) -> Result<Vec<String>> {

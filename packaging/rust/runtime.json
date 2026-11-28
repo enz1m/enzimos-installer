@@ -2,7 +2,7 @@
   "schema": 1,
   "component": "installer",
   "package_name": "enzimos-rust-installer",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "architecture": "x86_64",
   "profile": "rust-candidate",
   "automatic_activation": false,

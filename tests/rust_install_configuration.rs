@@ -193,3 +193,26 @@ fn attachment_placeholder_requires_new_closed_configuration_version() {
     body["files"]["etc/tmpfiles.d/other.conf"] = json!("c".repeat(64));
     assert!(install_configuration::validate(&body, &request, &owner).is_err());
 }
+
+#[test]
+fn batteryless_configuration_receipt_allows_only_its_optional_power_profile_unit() {
+    let request = request();
+    let owner = json!({"pid":789,"invocation":"a".repeat(32)});
+    let mut body = receipt(&request, &owner);
+    body["schema"] = json!(4);
+    body["members"] = json!({});
+    body["files"]["etc/pacman.conf"] = json!("a".repeat(64));
+    body["files"]["etc/snap-pac.ini"] = json!("b".repeat(64));
+    body["files"]["etc/tmpfiles.d/enzimos-backup-source.conf"] = json!("c".repeat(64));
+    for key in ["storage", "sessions", "network"] {
+        body[key] = Value::Null;
+    }
+    let profile = "etc/systemd/system/enzimos-initial-power-profile.service";
+    body["files"][profile] = json!("d".repeat(64));
+    body["members"][profile] = json!({
+        "path":profile,"kind":"file","inode":[1,2,128,1,2,3,4,33188,0,0,1],"mount":456,
+    });
+    install_configuration::validate(&body, &request, &owner).unwrap();
+    body["files"]["etc/systemd/system/other.service"] = json!("e".repeat(64));
+    assert!(install_configuration::validate(&body, &request, &owner).is_err());
+}

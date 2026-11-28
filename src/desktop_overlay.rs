@@ -101,10 +101,10 @@ fn prepare(media: &crate::media_source::Media, manifest: &Value) -> Result<Optio
         )?;
         return Ok(None);
     }
-    let manifest = media.member("desktop-preview.json", 4 * 1024 * 1024)?;
-    let manifest_identity = files::identity(&manifest.metadata()?);
+    let manifest_file = media.member("desktop-preview.json", 4 * 1024 * 1024)?;
+    let manifest_identity = files::identity(&manifest_file.metadata()?);
     let document = json::decode(
-        &files::read_file(&manifest, 4 * 1024 * 1024, Some(0), true)?,
+        &files::read_file(&manifest_file, 4 * 1024 * 1024, Some(0), true)?,
         4 * 1024 * 1024,
     )?;
     json::fields(
@@ -126,9 +126,20 @@ fn prepare(media: &crate::media_source::Media, manifest: &Value) -> Result<Optio
     let archive = media.member("desktop-preview.tar.zst", 4 * 1024 * 1024 * 1024)?;
     let archive_identity = files::identity(&archive.metadata()?);
     let reviewed = enzimos_policy::file_overlay::review(&archive, &document["files"])?;
+    if let Some(receipt) = manifest.get("desktop_xwayland") {
+        for (path, digest, mode) in crate::media_plan::XWAYLAND_FILES {
+            let member = &reviewed["members"][path];
+            require(
+                member["kind"] == "file"
+                    && member["mode"] == mode
+                    && member["sha256"] == receipt[digest],
+                "desktop Xwayland file differs from its media receipt",
+            )?;
+        }
+    }
     enzimos_policy::file_overlay::resources(&reviewed)?;
     Ok(Some(Prepared {
-        manifest,
+        manifest: manifest_file,
         manifest_identity,
         document,
         archive,

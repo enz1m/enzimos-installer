@@ -37,6 +37,11 @@ pub struct NativePackage {
     pub archive: File,
     identity_pin: files::FileIdentity,
 }
+impl NativePackage {
+    pub(crate) fn read_from_media(&self) -> bool {
+        self.declaration.file == crate::native_media::AI_MODELS_FILE
+    }
+}
 fn nvidia(gpu: Gpu) -> Result<bool> {
     if gpu != Gpu::Auto {
         return Ok(gpu == Gpu::Nvidia);
@@ -278,7 +283,7 @@ impl Admitted {
     pub(crate) fn signing_capacity(&self) -> Result<()> {
         self.media.recheck()?;
         let mut total = 0u64;
-        for package in &self.native {
+        for package in self.native.iter().filter(|p| !p.read_from_media()) {
             total = total
                 .checked_add(package.archive.metadata()?.len())
                 .ok_or_else(|| Error("native staging byte overflow".into()))?;

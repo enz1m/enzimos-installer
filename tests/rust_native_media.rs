@@ -40,6 +40,20 @@ fn rust_candidate_cohort_is_complete_closed_exact_and_never_activates_from_media
         changed["native_rust"]["installer"][key] = wrong;
         assert!(native_media::plan(&changed, &files).is_err());
     }
+    let mut updated = body.clone();
+    updated["native_rust"]["installer"]["version"] = json!("0.2.1");
+    let plan = native_media::plan(&updated, &files).unwrap();
+    let installer = plan
+        .iter()
+        .find(|r| r.name == "enzimos-rust-installer")
+        .unwrap();
+    native_media::identity(
+        installer,
+        &json!({"name":installer.name,"version":"0.2.1-1"}),
+    )
+    .unwrap();
+    updated["native_rust"]["updates"]["version"] = json!("0.2.1");
+    assert!(native_media::plan(&updated, &files).is_err());
     let mut partial = body.clone();
     partial["native_rust"]
         .as_object_mut()
@@ -167,7 +181,13 @@ fn ai_runtime_requires_its_complete_cohort_and_declares_its_models() {
     files.insert("ai-ai-models.pkg.tar.zst".into(), "d".repeat(64));
     body["ai_runtime"]["packages"].as_array_mut().unwrap().push(
         json!({"package_name":"enzimos-ai-models","media_file":"ai-ai-models.pkg.tar.zst","sha256":"d".repeat(64)}));
-    assert_eq!(native_media::plan(&body, &files).unwrap().len(), 5);
+    let plan = native_media::plan(&body, &files).unwrap();
+    assert_eq!(plan.len(), 5);
+    let models = plan
+        .iter()
+        .find(|row| row.name == "enzimos-ai-models")
+        .unwrap();
+    assert_eq!(models.max_bytes, 2 * 1024 * 1024 * 1024);
     body["ai_runtime"]["models_included"] = json!(false);
     assert!(
         native_media::plan(&body, &files).is_err(),

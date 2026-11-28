@@ -12,11 +12,15 @@ use std::{
         fd::{AsFd, AsRawFd, FromRawFd},
         unix::fs::MetadataExt,
     },
-    path::Path,
+    path::{Path, PathBuf},
 };
 const ROOT: &str = "/run/enzimos-live/media";
 /// Media directories whose `repo/` is an OSTree sideload repository (one per remote).
 pub(crate) const SIDELOAD_DIRECTORIES: [&str; 2] = ["flatpak", "flatpak-enzimos"];
+pub(crate) fn member_path(name: &str) -> PathBuf {
+    Path::new(ROOT).join("enzimos").join(name)
+}
+
 pub struct Media {
     root: File,
     directory: File,

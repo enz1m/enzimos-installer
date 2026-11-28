@@ -33,6 +33,8 @@ pub const REPLACES: [(&str, &str); 3] = [
     ("greetd", "greetd"),
     ("keyring", "gnome-keyring"),
 ];
+pub(crate) const AI_MODELS_FILE: &str = "ai-ai-models.pkg.tar.zst";
+
 pub const AI: [&str; 9] = [
     "inference-service",
     "ai-gateway",
@@ -260,17 +262,12 @@ pub fn plan(manifest: &Value, members: &BTreeMap<String, String>) -> Result<Vec<
                 row["media_file"] == file && seen.insert(component),
                 "AI filename or duplicate declaration",
             )?;
-            // The base models package carries about 750 MB of weights.
-            let bound = if component == "ai-models" { 1024 } else { 256 };
-            add(
-                &mut rows,
-                row,
-                members,
-                file,
-                name.into(),
-                None,
-                bound * 1024 * 1024,
-            )?;
+            let max_bytes = if file == AI_MODELS_FILE {
+                enzimos_platform::stream_copy::STREAM_BOUND
+            } else {
+                256 * 1024 * 1024
+            };
+            add(&mut rows, row, members, file, name.into(), None, max_bytes)?;
         }
         require(
             (ai["models_included"] == true) == seen.contains("ai-models"),
@@ -299,9 +296,13 @@ pub fn plan(manifest: &Value, members: &BTreeMap<String, String>) -> Result<Vec<
                 "package_name release version sha256 profile automatic_activation",
             )?;
             let name = format!("enzimos-rust-{component}");
+            let version = match (component, row["version"].as_str()) {
+                (_, Some("0.2.0")) => "0.2.0",
+                ("installer", Some("0.2.1")) => "0.2.1",
+                _ => return Err(Error("native Rust candidate version differs".into())),
+            };
             require(
                 row["package_name"] == name
-                    && row["version"] == "0.2.0"
                     && row["profile"] == "rust-candidate"
                     && row["automatic_activation"] == false,
                 "native Rust candidate identity or activation differs",
@@ -312,7 +313,7 @@ pub fn plan(manifest: &Value, members: &BTreeMap<String, String>) -> Result<Vec<
                 members,
                 format!("rust-{component}.pkg.tar.zst"),
                 name,
-                Some(release(row, "0.2.0")?),
+                Some(release(row, version)?),
                 128 * 1024 * 1024,
             )?;
         }

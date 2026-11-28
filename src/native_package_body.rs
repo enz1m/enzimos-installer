@@ -4,9 +4,14 @@ use crate::{
     media_packages::Admitted, native_signing, package_body, package_handoff::Received,
     package_job as job,
 };
-use enzimos_platform::{Result, files, json, memfile, process, require};
+use enzimos_platform::{Error, Result, files, json, memfile, process, require};
 use serde_json::{Value, json as value};
-use std::{collections::BTreeMap, os::fd::AsFd, path::Path, time::Duration};
+use std::{
+    collections::BTreeMap,
+    os::{fd::AsFd, unix::fs::symlink},
+    path::Path,
+    time::Duration,
+};
 pub fn expected(media: &Admitted, operation: &str) -> Result<BTreeMap<String, String>> {
     job::operation(operation)?;
     let mut expected = BTreeMap::new();
@@ -73,6 +78,8 @@ pub fn arguments(directory: &Path, files: &[String]) -> Result<Vec<String>> {
         "@fd:1",
         "--gpgdir",
         "@fd-dir:2",
+        "--hookdir",
+        "@fd-dir:3",
         "--noconfirm",
         "--needed",
         "-U",
@@ -106,9 +113,13 @@ pub fn install(context: &Received, media: &Admitted, arch: Value) -> Result<Valu
         "enzimos-native-offline-pacman",
         package_body::config().as_bytes(),
     )?;
+    let work = prepared
+        .directory
+        .parent()
+        .ok_or_else(|| Error("native package work directory missing".into()))?;
     // Freeze GPG's verification material for this transaction. The prepared
     // review directory retains its own original files for independent rechecks.
-    let keys = prepared.directory.parent().unwrap().join("verification");
+    let keys = work.join("verification");
     let verification = files::create_directory(&keys, 0o700, 0)?;
     let materials = prepared.materials();
     for (name, bytes) in &materials {
@@ -127,6 +138,10 @@ pub fn install(context: &Received, media: &Admitted, arch: Value) -> Result<Valu
         .map(|p| p.file.clone())
         .collect::<Vec<_>>();
     let args = arguments(&prepared.directory, &names)?;
+    let hooks = work.join("offline-hooks");
+    let hooks_dir = files::create_directory(&hooks, 0o700, 0)?;
+    // Firewalld reads the installed policy at boot; the offline chroot has no daemon to reload.
+    symlink("/dev/null", hooks.join("90-enzimos-remote-firewall.hook"))?;
     let output = process::run_pinned(
         "/usr/bin/pacman",
         media.images.get("/usr/bin/pacman")?,
@@ -134,14 +149,19 @@ pub fn install(context: &Received, media: &Admitted, arch: Value) -> Result<Valu
         &[],
         Duration::from_secs(job::RUNTIME_SECONDS - 60),
         32 * 1024 * 1024,
-        &[context.target.as_fd(), config.as_fd(), verification.as_fd()],
+        &[
+            context.target.as_fd(),
+            config.as_fd(),
+            verification.as_fd(),
+            hooks_dir.as_fd(),
+        ],
     )?;
     for (name, bytes) in [
         ("native-stdout.log", &output.stdout),
         ("native-stderr.log", &output.stderr),
     ] {
         files::atomic_bounded(
-            &prepared.directory.parent().unwrap().join(name),
+            &work.join(name),
             bytes,
             0o600,
             Some(0),
@@ -152,12 +172,14 @@ pub fn install(context: &Received, media: &Admitted, arch: Value) -> Result<Valu
     context.recheck()?;
     media.recheck()?;
     prepared.recheck(context, media)?;
-    require(
-        output.status.success()
-            && package_body::output_clean(&output.stdout)
-            && package_body::output_clean(&output.stderr),
-        "native offline pacman or package hook failed; unfinished attempt retained",
-    )?;
+    let clean =
+        package_body::output_clean(&output.stdout) && package_body::output_clean(&output.stderr);
+    if !output.status.success() || !clean {
+        return Err(Error(format!(
+            "native offline package transaction failed (pacman {}, fatal output: {}); unfinished attempt retained",
+            output.status, !clean
+        )));
+    }
     for (name, bytes) in &materials {
         require(
             files::read(&keys.join(name), 8 * 1024 * 1024, Some(0), true)? == *bytes,
@@ -172,7 +194,7 @@ pub fn install(context: &Received, media: &Admitted, arch: Value) -> Result<Valu
     let result = value!({"schema":1,"operation":context.request["operation"],"request_sha256":json::fingerprint(&context.request)?,
         "arch":arch,"installed":installed,"authority":publication,"exit_code":0,"development_artifact":true,"release_authorized":false});
     files::atomic(
-        &prepared.directory.parent().unwrap().join("result.json"),
+        &work.join("result.json"),
         &json::canonical(&result)?,
         0o600,
         Some(0),

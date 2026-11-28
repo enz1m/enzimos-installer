@@ -91,7 +91,7 @@ fn native_offline_arguments_cannot_select_network_sync_or_redirect_payload_paths
     )
     .unwrap();
     assert_eq!(
-        &args[..10],
+        &args[..12],
         [
             "--root",
             "@fd-dir:0",
@@ -99,13 +99,15 @@ fn native_offline_arguments_cannot_select_network_sync_or_redirect_payload_paths
             "@fd:1",
             "--gpgdir",
             "@fd-dir:2",
+            "--hookdir",
+            "@fd-dir:3",
             "--noconfirm",
             "--needed",
             "-U",
             "--"
         ]
     );
-    assert_eq!(args[10], format!("{directory}/native-policy.pkg.tar.zst"));
+    assert_eq!(args[12], format!("{directory}/native-policy.pkg.tar.zst"));
     assert!(
         native_package_body::arguments(
             Path::new("/tmp/packages"),
@@ -116,7 +118,7 @@ fn native_offline_arguments_cannot_select_network_sync_or_redirect_payload_paths
     let fleet = (0..36).map(|i| format!("native-{i}.pkg.tar.zst")).collect::<Vec<String>>();
     assert_eq!(
         native_package_body::arguments(Path::new(&directory), &fleet).unwrap().len(),
-        10 + fleet.len()
+        12 + fleet.len()
     );
     let oversized = (0..=native_package_body::MAX_NATIVE_PACKAGES)
         .map(|i| format!("native-{i}.pkg.tar.zst"))

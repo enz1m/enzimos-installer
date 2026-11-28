@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 //! Prepare locally signed native development packages without publishing target trust.
 use crate::{media_packages::Admitted, package_handoff::Received};
-use enzimos_platform::{Result, files, json, memfile, process, require, stream_copy};
+use enzimos_platform::{
+    Result, files, json, memfile, mount_identity, process, require, stream_copy,
+};
 use enzimos_policy::{
     authority, authority_build,
     development_signer::{Signer, verify_local},
@@ -10,7 +12,7 @@ use enzimos_policy::{
 use serde_json::{Value, json as value};
 use std::{
     fs::File,
-    os::fd::AsFd,
+    os::{fd::AsFd, unix::fs::symlink},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -21,6 +23,8 @@ pub struct Signed {
     pub signature: File,
     pub identity: Value,
     pub sha256: String,
+    max_bytes: u64,
+    media_path: Option<PathBuf>,
 }
 pub struct Prepared {
     pub directory: PathBuf,
@@ -116,20 +120,31 @@ pub fn prepare(context: &Received, media: &Admitted) -> Result<Prepared> {
         context.recheck()?;
         media.recheck()?;
         authority.recheck()?;
-        let mut source = package.archive.try_clone()?;
-        stream_copy::verified(
-            &mut source,
-            &parent,
-            &package.declaration.file,
-            source_bytes(&package.archive)?,
-            &package.declaration.sha256,
-            0,
-        )?;
-        let archive = files::open_relative(&parent, Path::new(&package.declaration.file))?;
-        require(
-            package_archive::identity(&archive)? == package.identity,
-            "copied native package identity changed",
-        )?;
+        let name = Path::new(&package.declaration.file);
+        let media_path = package
+            .read_from_media()
+            .then(|| crate::media_source::member_path(&package.declaration.file));
+        let archive = if let Some(path) = &media_path {
+            // Pacman finds the detached signature alongside the private symlink.
+            symlink(path, packages_directory.join(name))?;
+            package.archive.try_clone()?
+        } else {
+            let mut source = package.archive.try_clone()?;
+            stream_copy::verified(
+                &mut source,
+                &parent,
+                &package.declaration.file,
+                package.archive.metadata()?.len(),
+                &package.declaration.sha256,
+                0,
+            )?;
+            let archive = files::open_relative(&parent, name)?;
+            require(
+                package_archive::identity(&archive)? == package.identity,
+                "copied native package identity changed",
+            )?;
+            archive
+        };
         let signature_name = format!("{}.sig", package.declaration.file);
         signer.sign(&archive, &packages_directory.join(&signature_name))?;
         let signature = files::open_relative(&parent, Path::new(&signature_name))?;
@@ -145,6 +160,8 @@ pub fn prepare(context: &Received, media: &Admitted) -> Result<Prepared> {
             signature,
             identity: package.identity.clone(),
             sha256: package.declaration.sha256.clone(),
+            max_bytes: package.declaration.max_bytes,
+            media_path,
         });
     }
     context.recheck()?;
@@ -179,9 +196,6 @@ pub fn prepare(context: &Received, media: &Admitted) -> Result<Prepared> {
         receipt,
     })
 }
-fn source_bytes(file: &File) -> Result<u64> {
-    Ok(file.metadata()?.len())
-}
 impl Prepared {
     pub fn recheck(&self, context: &Received, media: &Admitted) -> Result<()> {
         context.recheck()?;
@@ -189,20 +203,27 @@ impl Prepared {
         self.authority.recheck()?;
         let parent = files::directory(&self.directory, Some(0))?;
         for package in &self.packages {
-            let named = files::open_relative(&parent, Path::new(&package.file))?;
+            let named = if let Some(path) = &package.media_path {
+                let archive = self.directory.join(&package.file);
+                require(
+                    std::fs::read_link(&archive)? == *path,
+                    "native archive symlink differs from the admitted media path",
+                )?;
+                File::open(archive)?
+            } else {
+                files::open_relative(&parent, Path::new(&package.file))?
+            };
             let signature =
                 files::open_relative(&parent, Path::new(&format!("{}.sig", package.file)))?;
             require(
                 files::identity(&named.metadata()?)
                     == files::identity(&package.archive.metadata()?)
+                    && mount_identity::id(named.as_fd(), true)?
+                        == mount_identity::id(package.archive.as_fd(), true)?
                     && files::identity(&signature.metadata()?)
                         == files::identity(&package.signature.metadata()?)
-                    && stream_copy::hash_borrowed(
-                        &package.archive,
-                        stream_copy::STREAM_BOUND,
-                        Some(0),
-                    )?
-                    .1 == package.sha256,
+                    && stream_copy::hash_borrowed(&package.archive, package.max_bytes, Some(0))?.1
+                        == package.sha256,
                 "prepared native archive or signature changed",
             )?;
             verify_local(

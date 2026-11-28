@@ -185,3 +185,34 @@ fn development_media_requires_a_review_record_and_declared_native_package_digest
     swapped["native_policy"]["sha256"] = json!("b".repeat(64));
     assert!(media_plan::manifest(&swapped, &members, now).is_err());
 }
+
+#[test]
+fn desktop_xwayland_receipt_has_a_closed_shape_and_requires_an_overlay() {
+    let members = BTreeMap::from([("native-policy.pkg.tar.zst".into(), "a".repeat(64))]);
+    let mut body = manifest();
+    body["desktop_preview_files"] = json!(2);
+    body["desktop_xwayland"] = json!({
+        "version":"24.1.15",
+        "url":"https://www.x.org/releases/individual/xserver/xwayland-24.1.15.tar.xz",
+        "sha256":"a".repeat(64),
+        "build_revision":format!("xwayland {} {}", "b".repeat(64), "c".repeat(64)),
+        "binary_sha256":"d".repeat(64),
+        "notice_sha256":"e".repeat(64),
+    });
+    assert!(media_plan::manifest(&body, &members, 0).is_ok());
+    for (key, invalid) in [
+        ("version", json!("../24.1.15")),
+        ("url", json!("https://example.org/xwayland-24.1.15.tar.xz")),
+        ("build_revision", json!("xwayland unbounded")),
+        ("notice_sha256", json!("A".repeat(64))),
+        ("unknown", json!(true)),
+    ] {
+        let mut wrong = body.clone();
+        wrong["desktop_xwayland"][key] = invalid;
+        assert!(media_plan::manifest(&wrong, &members, 0).is_err(), "{key}");
+    }
+    body["desktop_preview_files"] = json!(0);
+    assert!(media_plan::manifest(&body, &members, 0).is_err());
+    body["desktop_xwayland"] = json!(null);
+    assert!(media_plan::manifest(&body, &members, 0).is_err());
+}

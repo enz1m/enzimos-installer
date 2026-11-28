@@ -40,10 +40,11 @@ impl Held {
                 row["owner"].as_u64().unwrap() as u32,
                 row["single_link"].as_bool().unwrap(),
             )?;
-            require(
-                actual == *row && value!(files::identity(&file.metadata()?)) == row["inode"],
-                "original Flatpak output changed or replaced",
-            )?;
+            if actual != *row || value!(files::identity(&file.metadata()?)) != row["inode"] {
+                return Err(Error(format!(
+                    "original Flatpak output changed or replaced: {name}"
+                )));
+            }
         }
         Ok(())
     }
