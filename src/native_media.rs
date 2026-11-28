@@ -33,7 +33,7 @@ pub const REPLACES: [(&str, &str); 3] = [
     ("greetd", "greetd"),
     ("keyring", "gnome-keyring"),
 ];
-pub const AI: [&str; 8] = [
+pub const AI: [&str; 9] = [
     "inference-service",
     "ai-gateway",
     "llama-cpu",
@@ -42,6 +42,7 @@ pub const AI: [&str; 8] = [
     "ai-models",
     "dictation",
     "sherpa-onnx-cpu",
+    "streaming-speech",
 ];
 pub const RUST: [&str; 5] = [
     "packages",
@@ -274,6 +275,10 @@ pub fn plan(manifest: &Value, members: &BTreeMap<String, String>) -> Result<Vec<
         require(
             (ai["models_included"] == true) == seen.contains("ai-models"),
             "AI models are declared exactly when the models package is present",
+        )?;
+        require(
+            !seen.contains("streaming-speech") || seen.contains("dictation"),
+            "streaming speech requires the dictation client",
         )?;
         require(
             ["inference-service", "ai-gateway", "llama-cpu"]

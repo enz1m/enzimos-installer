@@ -174,6 +174,10 @@ fn ai_runtime_requires_its_complete_cohort_and_declares_its_models() {
         "the models package without the declaration"
     );
     body["ai_runtime"]["models_included"] = json!(true);
+    files.insert("ai-streaming-speech.pkg.tar.zst".into(), "9".repeat(64));
+    body["ai_runtime"]["packages"].as_array_mut().unwrap().push(
+        json!({"package_name":"enzimos-streaming-speech","media_file":"ai-streaming-speech.pkg.tar.zst","sha256":"9".repeat(64)}));
+    assert!(native_media::plan(&body, &files).is_err());
     files.insert("ai-dictation.pkg.tar.zst".into(), "e".repeat(64));
     body["ai_runtime"]["packages"].as_array_mut().unwrap().push(
         json!({"package_name":"enzimos-dictation","media_file":"ai-dictation.pkg.tar.zst","sha256":"e".repeat(64)}));
