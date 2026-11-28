@@ -4,12 +4,13 @@ use enzimos_platform::{Error, Result, json, require};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const APPS: [&str; 18] = [
+pub const APPS: [&str; 19] = [
     "terminal",
     "phone-link",
     "mount",
     "aft-mtp",
     "keyring",
+    "archive-keyring",
     "greetd",
     "store",
     "files",

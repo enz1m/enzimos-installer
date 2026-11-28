@@ -180,6 +180,36 @@ pub fn multilib(input: &str) -> Result<String> {
     )?;
     Ok(output)
 }
+pub(crate) const ARCHIVE_REPOS: &str = "/usr/share/enzimos/pacman-repositories.conf";
+
+pub(crate) fn archive_repos(input: &str) -> Result<String> {
+    let mut output = String::new();
+    let mut inserted = false;
+    let include = format!("Include = {ARCHIVE_REPOS}");
+    for line in input.lines() {
+        let trimmed = line.split('#').next().unwrap_or_default().trim();
+        require(
+            !matches!(trimmed, "[enzimos]" | "[enzimos-os]"),
+            "enzimOS repositories already declared in pacman.conf",
+        )?;
+        if trimmed
+            .split_once('=')
+            .is_some_and(|(key, path)| key.trim() == "Include" && path.trim() == ARCHIVE_REPOS)
+        {
+            continue;
+        }
+        if !inserted && trimmed.starts_with('[') && trimmed != "[options]" {
+            output.push_str(&include);
+            output.push('\n');
+            inserted = true;
+        }
+        output.push_str(line);
+        output.push('\n');
+    }
+    require(inserted, "pacman repository section missing")?;
+    Ok(output)
+}
+
 pub fn render(
     answers: &Answers,
     filesystem: &str,
@@ -316,4 +346,24 @@ pub fn swap_size(requested: Option<u32>, memory_kib: u64) -> Result<u32> {
         "installed memory size bound",
     )?;
     Ok(requested.unwrap_or((memory_kib / 1024).clamp(1024, 8192) as u32))
+}
+
+#[cfg(test)]
+mod archive_repo_tests {
+    use super::*;
+
+    #[test]
+    fn archive_repos_precede_arch_and_have_one_include() {
+        let input =
+            "[options]\nArchitecture = auto\n\n[core]\nInclude = /etc/pacman.d/mirrorlist\n";
+        let configured = archive_repos(input).unwrap();
+        assert_eq!(
+            configured,
+            format!(
+                "[options]\nArchitecture = auto\n\nInclude = {ARCHIVE_REPOS}\n[core]\nInclude = /etc/pacman.d/mirrorlist\n"
+            )
+        );
+        assert_eq!(archive_repos(&configured).unwrap(), configured);
+        assert!(archive_repos(&format!("{input}[enzimos-os] # duplicate\n")).is_err());
+    }
 }

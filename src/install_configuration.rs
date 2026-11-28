@@ -75,10 +75,17 @@ fn material_for(
             system_config::SURFACE_KEYBOARD_INSTALL.as_bytes().to_vec(),
         );
     }
-    result.files.insert(
-        "etc/pacman.conf".into(),
-        system_config::multilib(&read(root, "etc/pacman.conf")?)?.into_bytes(),
-    );
+    let mut pacman = system_config::multilib(&read(root, "etc/pacman.conf")?)?;
+    let share = files::directory_relative(root, Path::new("usr/share/enzimos"), Some(0))?;
+    if let Some(repositories) =
+        files::optional_relative(&share, Path::new("pacman-repositories.conf"))?
+    {
+        files::read_file(&repositories, 65536, Some(0), true)?;
+        pacman = system_config::archive_repos(&pacman)?;
+    }
+    result
+        .files
+        .insert("etc/pacman.conf".into(), pacman.into_bytes());
     result.files.insert(
         "etc/snap-pac.ini".into(),
         files::read_file(
