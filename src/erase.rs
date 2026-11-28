@@ -220,6 +220,101 @@ fn tool(source: &Source, disk: &Disk, program: &str, args: &[&str], input: &[u8]
     source.recheck()?;
     disk.observed_write(write)
 }
+fn aggregate_signature(probe: &str) -> bool {
+    probe.lines().any(|line| {
+        matches!(
+            line,
+            "USAGE=raid" | "TYPE=LVM2_member" | "TYPE=zfs_member" | "TYPE=bcache" | "TYPE=bcachefs"
+        ) || line.strip_prefix("PART_ENTRY_TYPE=").is_some_and(|kind| {
+            [
+                "5808c8aa-7e8f-42e0-85d2-e1e90434cfb3",
+                "af9b60a0-1431-4f62-bc68-3311714a69ad",
+                "e75caf8f-f680-4cee-afa3-b001e56efc2d",
+                "0x42",
+            ]
+            .iter()
+            .any(|aggregate| aggregate.eq_ignore_ascii_case(kind))
+        })
+    })
+}
+
+fn single_device_btrfs(superblock: &str) -> bool {
+    superblock.lines().any(|line| {
+        let mut fields = line.split_whitespace();
+        fields.next() == Some("num_devices") && fields.next() == Some("1")
+    })
+}
+
+fn no_aggregate_signature(device: std::os::fd::BorrowedFd<'_>) -> Result<()> {
+    let output = process::run_with_fds(
+        "/usr/bin/blkid",
+        &["--probe", "--output", "export", "@fd:0"],
+        &[],
+        Duration::from_secs(30),
+        65536,
+        &[device],
+    )?;
+    require(
+        matches!(output.status.code(), Some(0 | 2)) && output.stderr.is_empty(),
+        "disk has ambiguous storage signatures. Resolve them before erasing",
+    )?;
+    let probe =
+        std::str::from_utf8(&output.stdout).map_err(|_| Error("disk signature encoding".into()))?;
+    require(
+        !aggregate_signature(probe),
+        "disk contains a storage pool, RAID or volume group member that can belong to another disk",
+    )?;
+    if probe.lines().any(|line| line == "TYPE=btrfs") {
+        let superblock = process::run_with_fds(
+            "/usr/bin/btrfs",
+            &["inspect-internal", "dump-super", "@fd:0"],
+            &[],
+            Duration::from_secs(30),
+            65536,
+            &[device],
+        )?;
+        require(
+            superblock.status.success()
+                && std::str::from_utf8(&superblock.stdout).is_ok_and(single_device_btrfs),
+            "disk contains a Btrfs member without a verified single-device filesystem",
+        )?;
+    }
+    Ok(())
+}
+
+fn protect_storage_members(disk: &Disk) -> Result<()> {
+    let devices = disk.idle()?;
+    no_aggregate_signature(disk.descriptor())?;
+    for device in devices.into_iter().filter(|device| *device != disk.number) {
+        let node = enzimos_policy::topology::kernel_node(device)?;
+        let number = files::read_kernel(&node.path.join("partition"), 4096)?;
+        let sectors = files::read_kernel(&node.path.join("size"), 4096)?;
+        let number = std::str::from_utf8(&number)
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .ok_or_else(|| Error("existing partition number unavailable".into()))?;
+        let bytes = std::str::from_utf8(&sectors)
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .and_then(|n| n.checked_mul(512))
+            .ok_or_else(|| Error("existing partition size unavailable".into()))?;
+        let path = node
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| Error("existing partition name unavailable".into()))?;
+        let partition =
+            crate::format::PartitionFile::open(disk, &format!("/dev/{path}"), number, bytes)?;
+        require(
+            partition.number()? == device,
+            "existing partition identity changed",
+        )?;
+        no_aggregate_signature(partition.descriptor())?;
+        partition.identity(disk)?;
+    }
+    disk.idle().map(|_| ())
+}
+
 pub(crate) fn receipt_path(disk: &Disk) -> Result<(PathBuf, String)> {
     let boot = files::read_kernel(Path::new("/proc/sys/kernel/random/boot_id"), 4096)?;
     let boot = std::str::from_utf8(&boot)
@@ -276,6 +371,7 @@ pub(crate) fn apply_session(
         "installation medium cannot be the erase target",
     )?;
     crate::install_capacity::check(disk.bytes, media, &source.answers)?;
+    protect_storage_members(disk)?;
     let sector = disk.sector_size()?;
     let guids = [guid()?, guid()?, guid()?, guid()?];
     let plan = layout(disk.bytes, sector, disk.path.to_str().unwrap(), &guids)?;
@@ -393,4 +489,26 @@ pub(crate) fn apply_session(
         true,
     )?;
     attempted
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn erase_refuses_inactive_storage_members_but_allows_standalone_filesystems() {
+        for probe in [
+            "TYPE=linux_raid_member\nUSAGE=raid\n",
+            "TYPE=LVM2_member\n",
+            "TYPE=zfs_member\n",
+            "PART_ENTRY_TYPE=E75CAF8F-F680-4CEE-AFA3-B001E56EFC2D\n",
+            "PART_ENTRY_TYPE=0x42\n",
+        ] {
+            assert!(aggregate_signature(probe));
+        }
+        assert!(!aggregate_signature("TYPE=ntfs\nUSAGE=filesystem\n"));
+        assert!(single_device_btrfs("num_devices\t\t1\n"));
+        assert!(!single_device_btrfs("num_devices\t\t2\n"));
+        assert!(!single_device_btrfs(""));
+    }
 }
