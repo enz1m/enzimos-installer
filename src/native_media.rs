@@ -316,6 +316,7 @@ pub fn plan(manifest: &Value, members: &BTreeMap<String, String>) -> Result<Vec<
                 (_, Some("0.2.0")) => "0.2.0",
                 ("installer" | "packages", Some("0.2.1")) => "0.2.1",
                 ("installer", Some("0.2.2")) => "0.2.2",
+                ("installer", Some("0.2.3")) => "0.2.3",
                 _ => return Err(Error("native Rust candidate version differs".into())),
             };
             require(

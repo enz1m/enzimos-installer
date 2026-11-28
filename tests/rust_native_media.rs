@@ -64,6 +64,19 @@ fn rust_candidate_cohort_is_complete_closed_exact_and_never_activates_from_media
         let row = plan.iter().find(|row| row.name == name).unwrap();
         native_media::identity(row, &json!({"name":name,"version":version})).unwrap();
     }
+    updated["native_rust"]["installer"]["version"] = json!("0.2.3");
+    updated["native_rust"]["installer"]["release"] = json!(1);
+    updated["native_rust"]["packages"]["release"] = json!(4);
+    updated["native_rust"]["recovery-ui"]["release"] = json!(3);
+    let plan = native_media::plan(&updated, &files).unwrap();
+    for (name, version) in [
+        ("enzimos-rust-installer", "0.2.3-1"),
+        ("enzimos-rust-packages", "0.2.1-4"),
+        ("enzimos-rust-recovery-ui", "0.2.0-3"),
+    ] {
+        let row = plan.iter().find(|row| row.name == name).unwrap();
+        native_media::identity(row, &json!({"name":name,"version":version})).unwrap();
+    }
     updated["native_rust"]["updates"]["version"] = json!("0.2.1");
     assert!(native_media::plan(&updated, &files).is_err());
     updated["native_rust"]["updates"]["version"] = json!("0.2.0");

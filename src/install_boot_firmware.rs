@@ -95,11 +95,11 @@ pub(crate) fn verify(body: &Value) -> Result<()> {
 }
 fn expected_snapshot(before: &Value, entries: Value, id: u16) -> Value {
     let mut order = before["order"].as_array().unwrap().clone();
-    order.push(value!(id));
+    order.insert(0, value!(id));
     value!({"entries":entries,"order":order,"next":before["next"]})
 }
 
-pub(crate) fn registration(before: &Value) -> Result<(String, String)> {
+pub(crate) fn registration(before: &Value) -> Result<String> {
     let entries = before["entries"].as_object().unwrap();
     let order = before["order"].as_array().unwrap();
     require(
@@ -116,10 +116,10 @@ pub(crate) fn registration(before: &Value) -> Result<(String, String)> {
                 && before["next"]["id"] != value!(id)
         })
         .ok_or_else(|| Error("no unused firmware boot entry number".into()))?;
-    Ok((format!("{id:04X}"), order.len().to_string()))
+    Ok(format!("{id:04X}"))
 }
 
-pub(crate) fn published(mut body: Value) -> Result<Value> {
+pub(crate) fn published(mut body: Value, id: &str) -> Result<Value> {
     validate(&body)?;
     require(
         body["entry"].is_null() && body["entry_sha256"].is_null(),
@@ -134,8 +134,8 @@ pub(crate) fn published(mut body: Value) -> Result<Value> {
         .filter(|(name, _)| !before.contains_key(*name))
         .collect::<Vec<_>>();
     require(
-        added.len() == 1,
-        "EFI publication must create exactly one new entry",
+        added.len() == 1 && added[0].0 == &format!("Boot{id}-{GUID}"),
+        "EFI publication must create exactly the allocated entry",
     )?;
     body["entry"] = value!(added[0].0);
     body["entry_sha256"] = added[0].1.clone();
@@ -357,15 +357,16 @@ mod tests {
         assert!(validate(&scalar).is_err());
     }
     #[test]
-    fn registration_appends_without_claiming_an_existing_or_pending_entry() {
+    fn registration_prepends_without_claiming_an_existing_or_pending_entry() {
         let before = value!({
             "entries":{(format!("Boot0000-{GUID}")):"a".repeat(64)},
             "order":[0, 2, 0],
             "next":{"id":1,"sha256":"b".repeat(64)}
         });
-        assert_eq!(registration(&before).unwrap(), ("0003".into(), "3".into()));
+        assert_eq!(registration(&before).unwrap(), "0003");
         let after = expected_snapshot(&before, before["entries"].clone(), 3);
-        assert_eq!(after["order"], value!([0, 2, 0, 3]));
+        assert_eq!(after["entries"], before["entries"]);
+        assert_eq!(after["order"], value!([3, 0, 2, 0]));
         assert_eq!(after["next"], before["next"]);
     }
 }

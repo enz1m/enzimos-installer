@@ -184,8 +184,7 @@ pub fn install(context: &Received, media: &Admitted, configured: Value) -> Resul
         let partition = crate::install_boot_esp::observe(context, media)?;
         body["firmware"] = value!({"before":crate::install_boot_firmware::capture()?,"entry":null,"entry_sha256":null,"partition":partition});
         receipt::record(context, &body, true)?;
-        let (entry, index) =
-            crate::install_boot_firmware::registration(&body["firmware"]["before"])?;
+        let entry = crate::install_boot_firmware::registration(&body["firmware"]["before"])?;
         require(
             crate::install_boot_firmware::capture()? == body["firmware"]["before"],
             "firmware boot variables changed before entry publication",
@@ -200,8 +199,6 @@ pub fn install(context: &Received, media: &Admitted, configured: Value) -> Resul
                 "--create",
                 "--bootnum",
                 &entry,
-                "--index",
-                &index,
                 "--disk",
                 "@fd:1",
                 "--part",
@@ -215,7 +212,8 @@ pub fn install(context: &Received, media: &Admitted, configured: Value) -> Resul
             Duration::from_secs(120),
             &[disk.as_fd()],
         )?;
-        body["firmware"] = crate::install_boot_firmware::published(body["firmware"].clone())?;
+        body["firmware"] =
+            crate::install_boot_firmware::published(body["firmware"].clone(), &entry)?;
     }
     receipt::advance(context, &mut body, "firmware", &[])?;
     for kernel in kernels.values() {
