@@ -77,46 +77,6 @@ fn normalized(row: &Value) -> Result<Value> {
     row["type"] = value!(guid(&row["type"])?);
     Ok(row)
 }
-pub fn effective_table(before: &Value, review: &Value) -> Result<Value> {
-    let mut table = before["table"].clone();
-    let rows = table["partitions"]
-        .as_array_mut()
-        .ok_or_else(|| Error("existing GPT partitions missing".into()))?;
-    let shrink = &review["shrink"];
-    if !shrink.is_null() {
-        json::fields(shrink, "node filesystem old_size new_size")?;
-        require(
-            matches!(shrink["filesystem"].as_str(), Some("ext4" | "ntfs")),
-            "unsupported reviewed shrink filesystem",
-        )?;
-        let matches = rows
-            .iter_mut()
-            .filter(|r| r["node"] == shrink["node"])
-            .collect::<Vec<_>>();
-        require(
-            matches.len() == 1,
-            "reviewed shrink partition missing or ambiguous",
-        )?;
-        let row = matches.into_iter().next().unwrap();
-        require(
-            row["size"] == shrink["old_size"]
-                && n(&shrink["new_size"])? > 0
-                && n(&shrink["new_size"])? < n(&row["size"])?,
-            "reviewed shrink geometry differs",
-        )?;
-        let device = before["devices"][0]["children"]
-            .as_array()
-            .and_then(|rows| rows.iter().find(|r| r["name"] == shrink["node"]))
-            .ok_or_else(|| Error("reviewed shrink filesystem observation missing".into()))?;
-        require(
-            device["fstype"] == shrink["filesystem"]
-                && device["uuid"].as_str().is_some_and(|s| !s.is_empty()),
-            "reviewed shrink filesystem identity differs",
-        )?;
-        row["size"] = shrink["new_size"].clone();
-    }
-    Ok(table)
-}
 pub fn alongside_plan(
     before: &Value,
     review: &Value,
@@ -188,9 +148,12 @@ pub fn alongside_plan(
         start % (MIB / sector) == 0 && end % (MIB / sector) == 0 && mul(size, sector)? >= 24 * GIB,
         "alongside allocation alignment or minimum size",
     )?;
-    let effective = effective_table(before, review)?;
     require(
-        crate::partition::free_regions(&effective)?
+        review["shrink"].is_null(),
+        "alongside installation requires unallocated space. Resize existing filesystems from their own OS before installing",
+    )?;
+    require(
+        crate::partition::free_regions(table)?
             .iter()
             .any(|(first, count)| {
                 start >= *first && first.checked_add(*count).is_some_and(|last| end <= last)
@@ -249,8 +212,8 @@ pub fn verify(plan: &Value, table: &Value) -> Result<Value> {
         return crate::erase::verify(plan, table);
     }
     validate(plan, &value!({"path":plan["disk"],"bytes":plan["bytes"]}))?;
-    let effective = effective_table(&plan["before"], &plan["review"])?;
-    let mut wanted = effective.clone();
+    let original = &plan["before"]["table"];
+    let mut wanted = original.clone();
     let mut actual = table.clone();
     wanted
         .as_object_mut()
@@ -263,7 +226,7 @@ pub fn verify(plan: &Value, table: &Value) -> Result<Value> {
     wanted["id"] = value!(guid(&wanted["id"])?);
     actual["id"] = value!(guid(&actual["id"])?);
     require(wanted == actual, "preserved GPT header changed")?;
-    let old = effective["partitions"].as_array().unwrap();
+    let old = original["partitions"].as_array().unwrap();
     let rows = table["partitions"]
         .as_array()
         .ok_or_else(|| Error("current GPT partitions missing".into()))?;

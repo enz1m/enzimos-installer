@@ -5,7 +5,7 @@ use enzimos_platform::{
     process, require,
 };
 use serde_json::{Value, json as value};
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::time::Duration;
 
@@ -91,17 +91,46 @@ fn visit(node: &Value, depth: usize) -> Result<()> {
     }
     Ok(())
 }
+fn protective_mbr(sector: &[u8; 512], disk_sectors: u64) -> Result<()> {
+    let mut protective_entries = 0;
+    for row in sector[446..510].chunks_exact(16) {
+        if row == [0; 16] {
+            continue;
+        }
+        require(
+            row[0] == 0
+                && row[4] == 0xee
+                && row[8..12] == 1u32.to_le_bytes()
+                && row[12..16]
+                    == ((disk_sectors - 1).min(u64::from(u32::MAX)) as u32).to_le_bytes(),
+            "Alongside installation requires a standard protective MBR. Hybrid or nonstandard disks are left unchanged.",
+        )?;
+        protective_entries += 1;
+    }
+    require(
+        sector[510..] == [0x55, 0xaa] && protective_entries == 1,
+        "Alongside installation requires a valid protective MBR.",
+    )
+}
+
 pub fn observe(disk: &str) -> Result<Value> {
     let retained = crate::disk_guard::Disk::open(disk)?;
-    require(
-        disk.strip_prefix("/dev/")
-            .is_some_and(|s| !s.is_empty() && s.bytes().all(|c| c.is_ascii_alphanumeric())),
-        "Select a whole disk.",
+    let disk = retained.path.to_str().unwrap();
+    let mut mbr = [0; 512];
+    let file = std::fs::File::from(retained.descriptor().try_clone_to_owned()?);
+    file.read_exact_at(&mut mbr, 0)?;
+    protective_mbr(&mbr, retained.bytes / retained.sector_size()?)?;
+    let verified = process::run_with_fds(
+        "/usr/bin/sfdisk",
+        &["--verify", "@fd:0"],
+        &[],
+        Duration::from_secs(30),
+        65536,
+        &[retained.descriptor()],
     )?;
-    let metadata = std::fs::symlink_metadata(disk)?;
     require(
-        metadata.file_type().is_block_device(),
-        "Select an actual block disk.",
+        verified.status.success() && verified.stderr.is_empty(),
+        "Alongside installation requires an intact GPT.",
     )?;
     let tree = json::decode(
         cmd(
@@ -111,7 +140,7 @@ pub fn observe(disk: &str) -> Result<Value> {
                 "--bytes",
                 "--paths",
                 "--output",
-                "NAME,TYPE,SIZE,RO,MOUNTPOINTS,FSTYPE,UUID,SERIAL,MAJ:MIN",
+                "NAME,TYPE,SIZE,RO,MOUNTPOINTS,FSTYPE,UUID,SERIAL,MAJ:MIN,DISK-SEQ",
                 disk,
             ],
         )?
@@ -125,6 +154,7 @@ pub fn observe(disk: &str) -> Result<Value> {
         devices.len() == 1
             && devices[0]["name"] == disk
             && devices[0]["type"] == "disk"
+            && devices[0]["disk-seq"] == retained.sequence()?
             && (devices[0]["ro"] == false || devices[0]["ro"] == 0),
         "Disk is not writable.",
     )?;
@@ -178,24 +208,15 @@ pub fn free_regions(table: &Value) -> Result<Vec<(u64, u64)>> {
     }
     Ok(out)
 }
-fn make_plan(state: &Value, start: u64, size: u64, shrink: Value) -> Result<Value> {
+fn make_plan(state: &Value, start: u64, size: u64) -> Result<Value> {
     let sector = sector(&state["table"])?;
     require(
         mul(size, sector)? >= MIN_ROOT + BOOT_SIZE,
         "At least 24 GiB is needed for enzimOS and its boot files.",
     )?;
-    let mut p = value!({"schema":1,"disk":state["disk"],"before_sha256":fingerprint(state)?,"start":start,"size":size,"sector":sector,"shrink":shrink});
+    let mut p = value!({"schema":1,"disk":state["disk"],"before_sha256":fingerprint(state)?,"start":start,"size":size,"sector":sector,"shrink":null});
     p["id"] = value!(fingerprint(&p)?);
     Ok(p)
-}
-fn filesystem_number(info: &str, key: &str) -> Result<u64> {
-    let s = info
-        .lines()
-        .find_map(|l| l.strip_prefix(key))
-        .ok_or_else(|| Error("missing filesystem geometry".into()))?;
-    s.trim()
-        .parse()
-        .map_err(|_| Error("invalid filesystem geometry".into()))
 }
 pub fn inspect(disk: &str) -> Result<Value> {
     inspect_with_minimum(disk, MIN_ROOT + BOOT_SIZE)
@@ -209,61 +230,30 @@ pub fn inspect_with_minimum(disk: &str, minimum: u64) -> Result<Value> {
     let mut plans = Vec::new();
     for (start, size) in free_regions(table)? {
         if mul(size, sector)? >= minimum {
-            let mut p = make_plan(&state, start, size, Value::Null)?;
+            let mut p = make_plan(&state, start, size)?;
             p["label"] = value!("Use unallocated space");
             plans.push(p);
         }
     }
-    let devices = state["devices"][0]["children"].as_array();
-    for p in partitions(table)? {
-        let node = text(&p["node"])?;
-        let fs = devices
-            .and_then(|a| a.iter().find(|d| d["name"] == node))
-            .and_then(|d| d["fstype"].as_str())
-            .unwrap_or("");
-        let size = mul(number(&p["size"])?, sector)?;
-        let new = size / 2 / MIB * MIB;
-        if !matches!(fs, "ext4" | "ntfs") || size - new < minimum {
-            continue;
-        }
-        let checked: Result<()> = (|| {
-            if fs == "ext4" {
-                cmd("e2fsck", &["-fn", node])?;
-                let info = cmd("dumpe2fs", &["-h", node])?;
-                let block = filesystem_number(&info, "Block size:")?;
-                let count = filesystem_number(&info, "Block count:")?;
-                let free = filesystem_number(&info, "Free blocks:")?;
-                require(
-                    free <= count && new >= add(mul(count - free, block)?, 2 * GIB)?,
-                    "insufficient filesystem free space",
-                )?;
-            } else {
-                command(
-                    "ntfsresize",
-                    &["--no-action", "--size", &(new - MIB).to_string(), node],
-                    "y\n",
-                    &[0],
-                )?;
-            }
-            Ok(())
-        })();
-        if checked.is_err() {
-            continue;
-        }
-        let start = align(add(number(&p["start"])?, new / sector)?, MIB / sector)?;
-        let end = add(number(&p["start"])?, number(&p["size"])?)? / (MIB / sector) * (MIB / sector);
-        // MiB alignment of an unaligned partition can cost almost 2 MiB; a region
-        // that falls below the minimum is not offered rather than failing the
-        // whole disk inspection (and every other plan with it).
-        if end <= start || mul(end - start, sector)? < minimum {
-            continue;
-        }
-        let shrink = value!({"node":node,"filesystem":fs,"old_size":p["size"],"new_size":start - number(&p["start"])?});
-        let mut plan = make_plan(&state, start, end - start, shrink)?;
-        plan["label"] = value!(format!("Make space on {node} ({fs})"));
-        plans.push(plan);
-    }
     Ok(
-        value!({"schema":1,"disk":disk,"partitions":table["partitions"],"plans":plans,"uefi":Path::new("/sys/firmware/efi").exists()}),
+        value!({"schema":1,"disk":state["disk"],"partitions":table["partitions"],"plans":plans,"uefi":Path::new("/sys/firmware/efi").exists()}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hybrid_mbr_and_stale_protective_geometry_refuse_alongside() {
+        let mut mbr = [0; 512];
+        mbr[450] = 0xee;
+        mbr[454..458].copy_from_slice(&1u32.to_le_bytes());
+        mbr[458..462].copy_from_slice(&65535u32.to_le_bytes());
+        mbr[510..].copy_from_slice(&[0x55, 0xaa]);
+        assert!(protective_mbr(&mbr, 65536).is_ok());
+        assert!(protective_mbr(&mbr, 65537).is_err());
+        mbr[466] = 0x07;
+        assert!(protective_mbr(&mbr, 65536).is_err());
+    }
 }

@@ -7,7 +7,6 @@ use crate::{
 use enzimos_platform::{Error, Result, files, json, process, require};
 use serde_json::{Value, json as value};
 use std::{path::Path, time::Duration};
-const MIB: u64 = 1024 * 1024;
 fn number(v: &Value) -> Result<u64> {
     v.as_u64()
         .ok_or_else(|| Error("alongside geometry missing".into()))
@@ -159,199 +158,6 @@ fn settle(source: &Source, session: &Session) -> Result<()> {
     session.recheck(source)?;
     session.disk().idle().map(|_| ())
 }
-fn filesystem(bytes: &[u8], kind: &str) -> Result<Value> {
-    if kind == "ext4" {
-        return crate::format::filesystem(bytes, kind);
-    }
-    require(kind == "ntfs", "unsupported existing filesystem")?;
-    let body = std::str::from_utf8(bytes).map_err(|_| Error("NTFS probe encoding".into()))?;
-    let mut fields = std::collections::BTreeMap::new();
-    for line in body.lines() {
-        let (k, v) = line
-            .split_once('=')
-            .ok_or_else(|| Error("NTFS probe shape".into()))?;
-        require(
-            fields.len() < 32 && !v.chars().any(char::is_control) && fields.insert(k, v).is_none(),
-            "NTFS probe ambiguous",
-        )?;
-    }
-    let uuid = fields
-        .get("UUID")
-        .ok_or_else(|| Error("NTFS UUID missing".into()))?;
-    require(
-        fields.get("TYPE") == Some(&"ntfs")
-            && uuid.len() == 16
-            && uuid.bytes().all(|b| b.is_ascii_hexdigit()),
-        "NTFS filesystem identity invalid",
-    )?;
-    Ok(value!({"type":kind,"uuid":uuid}))
-}
-fn shrink(source: &Source, media: &Admitted, session: &Session, plan: &Value) -> Result<()> {
-    let shrink = &plan["review"]["shrink"];
-    if shrink.is_null() {
-        return Ok(());
-    }
-    let row = plan["before"]["table"]["partitions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|row| row["node"] == shrink["node"])
-        .ok_or_else(|| Error("original shrink partition missing".into()))?;
-    let node = text(&row["node"])?;
-    let sector = number(&plan["sector"])?;
-    let part = crate::format::PartitionFile::open(
-        session.disk(),
-        node,
-        allocation::partition_number(text(&plan["disk"])?, node)?,
-        number(&row["size"])?
-            .checked_mul(sector)
-            .ok_or_else(|| Error("existing partition byte overflow".into()))?,
-    )?;
-    let kind = text(&shrink["filesystem"])?;
-    let probe = |part: &crate::format::PartitionFile| -> Result<Value> {
-        filesystem(
-            &part.run(
-                source,
-                session.disk(),
-                "/usr/bin/blkid",
-                &["--probe", "--output", "export", "@fd:0"],
-                &[],
-                Duration::from_secs(30),
-            )?,
-            kind,
-        )
-    };
-    let before = probe(&part)?;
-    let device = plan["before"]["devices"][0]["children"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|row| row["name"] == node)
-        .unwrap();
-    require(
-        before["uuid"] == device["uuid"],
-        "original shrink filesystem UUID changed",
-    )?;
-    let bytes = number(&shrink["new_size"])?
-        .checked_mul(sector)
-        .and_then(|n| n.checked_sub(MIB))
-        .ok_or_else(|| Error("filesystem shrink byte overflow".into()))?;
-    session.recheck(source)?;
-    media.recheck()?;
-    if kind == "ext4" {
-        part.run(
-            source,
-            session.disk(),
-            "/usr/bin/e2fsck",
-            &["-fn", "@fd:0"],
-            &[],
-            Duration::from_secs(600),
-        )?;
-        part.run(
-            source,
-            session.disk(),
-            "/usr/bin/e2fsck",
-            &["-f", "-p", "@fd:0"],
-            &[],
-            Duration::from_secs(600),
-        )?;
-        part.run(
-            source,
-            session.disk(),
-            "/usr/bin/resize2fs",
-            &["@fd:0", &format!("{}K", bytes / 1024)],
-            &[],
-            Duration::from_secs(600),
-        )?;
-        part.run(
-            source,
-            session.disk(),
-            "/usr/bin/e2fsck",
-            &["-fn", "@fd:0"],
-            &[],
-            Duration::from_secs(600),
-        )?;
-    } else {
-        part.run(
-            source,
-            session.disk(),
-            "/usr/bin/ntfsresize",
-            &["--no-action", "--size", &bytes.to_string(), "@fd:0"],
-            b"y\n",
-            Duration::from_secs(600),
-        )?;
-        part.run(
-            source,
-            session.disk(),
-            "/usr/bin/ntfsresize",
-            &["--size", &bytes.to_string(), "@fd:0"],
-            b"y\n",
-            Duration::from_secs(600),
-        )?;
-    }
-    require(
-        probe(&part)? == before,
-        "shrinking changed original filesystem identity",
-    )?;
-    drop(part);
-    // Resize only this reviewed GPT row after successful filesystem shrink.
-    // The allocation intent is already durable; failure never permits retry.
-    let partn = allocation::partition_number(text(&plan["disk"])?, node)?.to_string();
-    let input = format!(", {}\n", number(&shrink["new_size"])?);
-    gpt(
-        source,
-        media,
-        session,
-        &[
-            "--no-act",
-            "--wipe",
-            "never",
-            "--wipe-partitions",
-            "never",
-            "-N",
-            &partn,
-            "@fd:0",
-        ],
-        input.as_bytes(),
-        GptOperation::Preview,
-    )?;
-    gpt(
-        source,
-        media,
-        session,
-        &[
-            "--wipe",
-            "never",
-            "--wipe-partitions",
-            "never",
-            "-N",
-            &partn,
-            "@fd:0",
-        ],
-        input.as_bytes(),
-        GptOperation::Write,
-    )?;
-    settle(source, session)?;
-    let actual = table(source, session)?;
-    let expected = allocation::effective_table(&plan["before"], &plan["review"])?;
-    require(
-        actual == expected,
-        "shrinking changed unrelated GPT metadata",
-    )?;
-    let resized = crate::format::PartitionFile::open(
-        session.disk(),
-        node,
-        allocation::partition_number(text(&plan["disk"])?, node)?,
-        number(&shrink["new_size"])?
-            .checked_mul(sector)
-            .ok_or_else(|| Error("resized partition byte overflow".into()))?,
-    )?;
-    require(
-        probe(&resized)? == before,
-        "resized partition filesystem identity differs",
-    )?;
-    media.recheck()
-}
 pub(crate) fn apply(source: &Source, media: &Admitted, session: &Session) -> Result<Value> {
     session.recheck(source)?;
     media.recheck()?;
@@ -414,7 +220,7 @@ pub(crate) fn apply(source: &Source, media: &Admitted, session: &Session) -> Res
     let directory = Path::new("/run/enzimos-install-native");
     files::ensure_directory(directory, 0o700, 0)?;
     // The stable boot/disk key excludes every previous mode and uncertain
-    // attempt. The exact original dump is retained before any repair or resize.
+    // attempt. The exact original dump is retained before changing the table.
     files::atomic_bounded(
         &path.with_extension("sfdisk"),
         &dump.stdout,
@@ -429,7 +235,6 @@ pub(crate) fn apply(source: &Source, media: &Admitted, session: &Session) -> Res
         journal.recheck()?;
         session.recheck(source)?;
         media.recheck()?;
-        shrink(source, media, session, &plan)?;
         let script = allocation::append_script(&plan)?;
         gpt(
             source,

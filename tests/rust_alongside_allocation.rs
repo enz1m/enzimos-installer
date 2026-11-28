@@ -149,7 +149,7 @@ fn formatted_alongside_handoff_requires_new_paths_and_keeps_the_bios_slot_empty(
     assert!(root_prepare::admit(&body, boot, &disk, true).is_err());
 }
 #[test]
-fn shrink_review_changes_only_the_selected_existing_size_and_frees_its_tail() {
+fn alongside_refuses_even_a_reviewed_shrink_of_ntfs_or_ext4() {
     let mut before = state();
     before["table"]["partitions"].as_array_mut().unwrap().pop();
     before["table"]["partitions"][0]["size"] = json!(60 * GIB / 512);
@@ -158,22 +158,18 @@ fn shrink_review_changes_only_the_selected_existing_size_and_frees_its_tail() {
         .unwrap()
         .pop();
     let start = 30 * GIB / 512 + 2048;
-    let r = review(
-        &before,
-        start,
-        30 * GIB / 512,
-        json!({"node":"/dev/vda1","filesystem":"ntfs","old_size":60*GIB/512,"new_size":30*GIB/512}),
-    );
     let disk = json!({"path":"/dev/vda","bytes":64*GIB});
-    let plan = allocation::alongside_plan(&before, &r, &disk, &[UUIDS[2].into(), UUIDS[3].into()])
-        .unwrap();
-    let effective = allocation::effective_table(&before, &r).unwrap();
-    assert_eq!(effective["partitions"][0]["size"], 30 * GIB / 512);
-    let mut restored = effective;
-    restored["partitions"][0]["size"] = before["table"]["partitions"][0]["size"].clone();
-    assert_eq!(restored, before["table"]);
-    allocation::validate(&plan, &disk).unwrap();
-    let mut changed = r;
-    changed["shrink"]["filesystem"] = json!("btrfs");
-    assert!(allocation::effective_table(&before, &changed).is_err());
+    for filesystem in ["ntfs", "ext4"] {
+        before["devices"][0]["children"][0]["fstype"] = json!(filesystem);
+        let r = review(
+            &before,
+            start,
+            30 * GIB / 512,
+            json!({"node":"/dev/vda1","filesystem":filesystem,"old_size":60*GIB/512,"new_size":30*GIB/512}),
+        );
+        let error =
+            allocation::alongside_plan(&before, &r, &disk, &[UUIDS[2].into(), UUIDS[3].into()])
+                .unwrap_err();
+        assert!(error.to_string().contains("requires unallocated space"));
+    }
 }

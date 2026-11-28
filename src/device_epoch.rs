@@ -112,7 +112,6 @@ impl Epoch {
                     | "bios-device-events"
                     | "gpt-preview-device-events"
                     | "partition-format"
-                    | "partition-resize"
                     | "mapped-root-format"
                     | "luks-mapper-open"
             ),

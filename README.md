@@ -16,7 +16,15 @@ the installed boot entries.
 Whole-disk installation uses `systemd-repart` to create a new partition table
 from the reviewed plan. Alongside installation uses `sfdisk` so it can place
 new partitions at the exact offsets the user reviewed. The backend checks
-the resulting layout before it continues.
+the resulting layout before it continues. Alongside requires a UEFI boot, a
+healthy GPT and enough unallocated space for a separate enzimOS ESP and root.
+Prepare free space using the existing OS's own disk tools before starting
+the installer.
+
+Set `ENZIMOS_DISK` to the intended whole disk's `/dev/disk/by-id/` path in
+unattended answers. For a device name selected during the current live boot,
+also set `ENZIMOS_DISK_SEQUENCE` to its reviewed `lsblk -dno DISK-SEQ` value.
+The graphical and console installers record that sequence at selection.
 
 When the offline app fleet is selected, the installer sets system defaults for
 the browser, calendar, documents, audio, images and video based on the apps it

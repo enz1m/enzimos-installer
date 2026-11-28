@@ -173,25 +173,13 @@ impl PartitionFile {
             "/usr/bin/cryptsetup" if args.first() == Some(&"luksFormat") => {
                 Some(self.epoch.begin("partition-format")?)
             }
-            "/usr/bin/e2fsck" if args.contains(&"-fn") => None,
-            "/usr/bin/ntfsresize" if args.contains(&"--no-action") => None,
-            "/usr/bin/e2fsck" | "/usr/bin/resize2fs" | "/usr/bin/ntfsresize" => {
-                require(
-                    source.answers.partition == crate::answers::Partition::Alongside,
-                    "existing filesystem resize requires alongside answers",
-                )?;
-                Some(self.epoch.begin("partition-resize")?)
-            }
             "/usr/bin/blkid" => None,
             _ => return Err(Error("partition tool outside closed role registry".into())),
         };
         let output =
             process::run_with_fds(program, args, input, timeout, 65536, &[self.file.as_fd()])?;
         require(
-            output.status.success()
-                || (program == "/usr/bin/e2fsck"
-                    && args.contains(&"-p")
-                    && output.status.code() == Some(1)),
+            output.status.success(),
             "partition tool failed; this attempt cannot be replayed",
         )?;
         if let Some(write) = write {
