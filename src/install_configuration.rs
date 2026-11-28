@@ -47,6 +47,12 @@ fn material_for(
         &cmdline,
     )?;
     crate::install_power_profile::add(&mut result.files);
+    if source.answers.flatpaks {
+        result.files.insert(
+            crate::install_flatpak_triggers::UNIT_PATH.into(),
+            crate::install_flatpak_triggers::UNIT_TEXT.into(),
+        );
+    }
     result.files.insert(
         "etc/locale.gen".into(),
         system_config::locale_gen(&read(root, "etc/locale.gen")?, &source.answers.locale)?
@@ -193,9 +199,13 @@ pub fn validate(body: &Value, request: &Value, owner: &Value) -> Result<()> {
     ];
     if attachment {
         names.push("etc/tmpfiles.d/enzimos-backup-source.conf");
-        let power_profile = crate::install_power_profile::UNIT_PATH;
-        if entries.contains_key(power_profile) {
-            names.push(power_profile);
+        for unit in [
+            crate::install_power_profile::UNIT_PATH,
+            crate::install_flatpak_triggers::UNIT_PATH,
+        ] {
+            if entries.contains_key(unit) {
+                names.push(unit);
+            }
         }
     }
     if expanded {
@@ -381,6 +391,12 @@ pub fn install(context: &Received, media: &Admitted, packages: Value) -> Result<
                 ];
                 if crate::install_power_profile::selected(&material.files) {
                     enable.push(crate::install_power_profile::UNIT);
+                }
+                if material
+                    .files
+                    .contains_key(crate::install_flatpak_triggers::UNIT_PATH)
+                {
+                    enable.push(crate::install_flatpak_triggers::UNIT);
                 }
                 crate::install_config_tools::run(
                     context,
