@@ -185,7 +185,7 @@ dependencies = [
 [[package]]
 name = "enzimos-platform"
 version = "0.2.0"
-source = "git+https://github.com/enz1m/enzimos-packages.git?rev=97a249a18108f30a033220b6555984bdfc476228#97a249a18108f30a033220b6555984bdfc476228"
+source = "git+https://github.com/enz1m/enzimos-packages.git?rev=bfbc46409befb5bbd67e766a1175f6b0a94774d7#bfbc46409befb5bbd67e766a1175f6b0a94774d7"
 dependencies = [
  "libc",
  "serde",
@@ -196,7 +196,7 @@ dependencies = [
 [[package]]
 name = "enzimos-policy"
 version = "0.2.0"
-source = "git+https://github.com/enz1m/enzimos-packages.git?rev=97a249a18108f30a033220b6555984bdfc476228#97a249a18108f30a033220b6555984bdfc476228"
+source = "git+https://github.com/enz1m/enzimos-packages.git?rev=bfbc46409befb5bbd67e766a1175f6b0a94774d7#bfbc46409befb5bbd67e766a1175f6b0a94774d7"
 dependencies = [
  "chrono",
  "enzimos-platform",
@@ -214,7 +214,7 @@ dependencies = [
 [[package]]
 name = "enzimos-system-backend"
 version = "0.2.0"
-source = "git+https://github.com/enz1m/enzimos-packages.git?rev=97a249a18108f30a033220b6555984bdfc476228#97a249a18108f30a033220b6555984bdfc476228"
+source = "git+https://github.com/enz1m/enzimos-packages.git?rev=bfbc46409befb5bbd67e766a1175f6b0a94774d7#bfbc46409befb5bbd67e766a1175f6b0a94774d7"
 dependencies = [
  "enzimos-platform",
  "enzimos-policy",
