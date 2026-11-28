@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use zeroize::Zeroizing;
 pub const MAX_FILE: usize = 64 * 1024;
-const KEYS: &str = "ENZIMOS_PARTITION_MODE ENZIMOS_PARTITION_PLAN ENZIMOS_FLATPAKS ENZIMOS_DESKTOP ENZIMOS_GPU_DRIVER ENZIMOS_DISK ENZIMOS_ERASE_CONFIRM ENZIMOS_HOSTNAME ENZIMOS_USER ENZIMOS_FULLNAME ENZIMOS_PASSWORD ENZIMOS_ENCRYPT ENZIMOS_PASSPHRASE ENZIMOS_TIMEZONE ENZIMOS_LOCALE ENZIMOS_KEYMAP ENZIMOS_FINISH ENZIMOS_TEST_CHECK ENZIMOS_SWAP_MIB ENZIMOS_XKB_LAYOUT ENZIMOS_VERIFY_MEDIA";
+const KEYS: &str = "ENZIMOS_PARTITION_MODE ENZIMOS_PARTITION_PLAN ENZIMOS_FLATPAKS ENZIMOS_DESKTOP ENZIMOS_GPU_DRIVER ENZIMOS_DISK ENZIMOS_DISK_SEQUENCE ENZIMOS_ERASE_CONFIRM ENZIMOS_HOSTNAME ENZIMOS_USER ENZIMOS_FULLNAME ENZIMOS_PASSWORD ENZIMOS_ENCRYPT ENZIMOS_PASSPHRASE ENZIMOS_TIMEZONE ENZIMOS_LOCALE ENZIMOS_KEYMAP ENZIMOS_FINISH ENZIMOS_TEST_CHECK ENZIMOS_SWAP_MIB ENZIMOS_XKB_LAYOUT ENZIMOS_VERIFY_MEDIA";
 pub type Values = BTreeMap<String, Zeroizing<String>>;
 pub fn parse(bytes: &[u8]) -> Result<Values> {
     require(
@@ -53,6 +53,7 @@ pub enum Gpu {
 }
 pub struct Answers {
     pub disk: String,
+    pub disk_sequence: Option<u64>,
     pub partition: Partition,
     pub partition_plan: Option<String>,
     pub hostname: String,
@@ -116,6 +117,19 @@ impl Answers {
     pub fn from_values(mut values: Values) -> Result<Self> {
         let disk = plain(&mut values, "ENZIMOS_DISK", None)?;
         disk_path(&disk)?;
+        let sequence = plain(&mut values, "ENZIMOS_DISK_SEQUENCE", Some(""))?;
+        let disk_sequence = if sequence.is_empty() {
+            None
+        } else {
+            let number = sequence
+                .parse::<u64>()
+                .map_err(|_| Error("invalid reviewed disk sequence".into()))?;
+            require(
+                number > 0 && number.to_string() == sequence,
+                "invalid reviewed disk sequence",
+            )?;
+            Some(number)
+        };
         require(
             take(&mut values, "ENZIMOS_ERASE_CONFIRM", None)?.as_str() == "yes",
             "installation disk confirmation required",
@@ -243,6 +257,7 @@ impl Answers {
         require(values.is_empty(), "unconsumed installer answers")?;
         Ok(Self {
             disk,
+            disk_sequence,
             partition,
             partition_plan: if plan.is_empty() { None } else { Some(plan) },
             hostname,
@@ -265,7 +280,7 @@ impl Answers {
         })
     }
     pub fn review(&self) -> Value {
-        json!({"disk":self.disk,"partition_mode":if self.partition == Partition::Erase {"erase"}else{"alongside"},"partition_plan":self.partition_plan,
+        json!({"disk":self.disk,"disk_sequence":self.disk_sequence,"partition_mode":if self.partition == Partition::Erase {"erase"}else{"alongside"},"partition_plan":self.partition_plan,
             "hostname":self.hostname,"username":self.username,"fullname":self.fullname,"encrypted":self.encrypted,
             "timezone":self.timezone,"locale":self.locale,"keymap":self.keymap,"xkb_layout":self.xkb_layout,
             "finish":if self.finish == Finish::Reboot {"reboot"}else{"poweroff"},"test_check":self.test_check,"swap_mib":self.swap_mib,

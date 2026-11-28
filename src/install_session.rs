@@ -67,6 +67,11 @@ impl Session {
         Self::from_parts(source, disk, lock)
     }
     fn from_parts(source: &Source, disk: Disk, lock: files::Lock) -> Result<Self> {
+        review_disk(
+            &source.answers.disk,
+            source.answers.disk_sequence,
+            disk.sequence()?,
+        )?;
         let identity = files::identity(&lock.as_file().metadata()?);
         let mount = mount_identity::id(lock.as_file().as_fd(), true)?;
         let session = Self {
@@ -94,5 +99,28 @@ impl Session {
     }
     pub(crate) fn into_parts(self) -> (Disk, files::Lock, files::FileIdentity, u64) {
         (self.disk, self.lock, self.identity, self.mount)
+    }
+}
+
+fn review_disk(path: &str, reviewed: Option<u64>, current: u64) -> Result<()> {
+    let stable_id = Path::new(path).parent() == Some(Path::new("/dev/disk/by-id"));
+    require(
+        reviewed.map_or(stable_id, |sequence| sequence == current),
+        "disk selection changed or lacks an identity. Select the disk again or use a /dev/disk/by-id path for unattended installation",
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reused_kernel_device_name_does_not_inherit_confirmation() {
+        assert!(review_disk("/dev/vda", Some(7), 7).is_ok());
+        assert!(review_disk("/dev/vda", Some(7), 8).is_err());
+        assert!(review_disk("/dev/vda", None, 7).is_err());
+        assert!(review_disk("/dev/disk/by-path/pci-fixture", None, 7).is_err());
+        assert!(review_disk("/dev/disk/by-id/virtio-target", None, 7).is_ok());
+        assert!(review_disk("/dev/disk/by-id/virtio-target", Some(7), 8).is_err());
     }
 }

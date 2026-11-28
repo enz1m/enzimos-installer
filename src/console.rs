@@ -151,7 +151,8 @@ pub fn install(serial: bool) -> Result<Value> {
         .status()?;
     let mut values = answers::Values::new();
     let disk = ask(&mut tty, "Disk to ERASE and install enzimOS on", "", false)?;
-    answers::disk_path(&disk)?;
+    let reviewed = crate::disk_guard::Disk::open(&disk)?;
+    let disk_sequence = reviewed.sequence()?;
     let confirm = ask(
         &mut tty,
         "Type the disk path again to confirm erasing it",
@@ -160,6 +161,10 @@ pub fn install(serial: bool) -> Result<Value> {
     )?;
     require(disk == confirm, "installation disk not confirmed")?;
     values.insert("ENZIMOS_DISK".into(), disk);
+    values.insert(
+        "ENZIMOS_DISK_SEQUENCE".into(),
+        Zeroizing::new(disk_sequence.to_string()),
+    );
     values.insert("ENZIMOS_ERASE_CONFIRM".into(), Zeroizing::new("yes".into()));
     for (key, prompt, default) in [
         ("ENZIMOS_HOSTNAME", "Computer name", "enzimos"),

@@ -177,6 +177,16 @@ impl Disk {
     pub fn descriptor(&self) -> std::os::fd::BorrowedFd<'_> {
         self.file.as_fd()
     }
+    pub(crate) fn sequence(&self) -> Result<u64> {
+        self.recheck()?;
+        let observed = enzimos_policy::block::observe(self.descriptor())?;
+        let sequence = self.graph.nodes[&self.number].disk_sequence;
+        require(
+            sequence.is_some() && observed["disk_sequence"].as_u64() == sequence,
+            "selected disk descriptor and kernel sequence differ",
+        )?;
+        sequence.ok_or_else(|| Error("selected disk sequence missing".into()))
+    }
     pub fn observation(&self) -> Result<serde_json::Value> {
         self.recheck()?;
         Ok(
