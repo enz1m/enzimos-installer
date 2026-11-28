@@ -314,7 +314,7 @@ pub fn plan(manifest: &Value, members: &BTreeMap<String, String>) -> Result<Vec<
             let name = format!("enzimos-rust-{component}");
             let version = match (component, row["version"].as_str()) {
                 (_, Some("0.2.0")) => "0.2.0",
-                ("installer", Some("0.2.1")) => "0.2.1",
+                ("installer" | "packages", Some("0.2.1")) => "0.2.1",
                 ("installer", Some("0.2.2")) => "0.2.2",
                 _ => return Err(Error("native Rust candidate version differs".into())),
             };
