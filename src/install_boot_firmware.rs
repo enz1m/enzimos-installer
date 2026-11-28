@@ -55,7 +55,20 @@ fn snapshot() -> Result<Value> {
                 .collect()
         }
     };
-    Ok(value!({"entries":entries,"order":order}))
+    let next = files::read_optional(
+        &Path::new(EFI).join(format!("BootNext-{GUID}")),
+        6,
+        Some(0),
+        false,
+    )?;
+    let next = match next {
+        None => Value::Null,
+        Some(bytes) => {
+            require(bytes.len() == 6, "firmware BootNext framing")?;
+            value!({"id":u16::from_le_bytes([bytes[4], bytes[5]]),"sha256":json::sha256(&bytes)})
+        }
+    };
+    Ok(value!({"entries":entries,"order":order,"next":next}))
 }
 pub(crate) fn verify(body: &Value) -> Result<()> {
     validate(body)?;
@@ -75,13 +88,37 @@ pub(crate) fn verify(body: &Value) -> Result<()> {
         .insert(name.into(), body["entry_sha256"].clone());
     let id = u16::from_str_radix(&name[4..8], 16)
         .map_err(|_| Error("EFI entry number encoding".into()))?;
-    let mut order = vec![value!(id)];
-    order.extend(body["before"]["order"].as_array().unwrap().iter().cloned());
     require(
-        current["entries"] == expected && current["order"] == value!(order),
-        "prior firmware entries or order changed outside original publication",
+        current == expected_snapshot(&body["before"], expected, id),
+        "prior firmware entries, order or BootNext changed outside original publication",
     )
 }
+fn expected_snapshot(before: &Value, entries: Value, id: u16) -> Value {
+    let mut order = before["order"].as_array().unwrap().clone();
+    order.push(value!(id));
+    value!({"entries":entries,"order":order,"next":before["next"]})
+}
+
+pub(crate) fn registration(before: &Value) -> Result<(String, String)> {
+    let entries = before["entries"].as_object().unwrap();
+    let order = before["order"].as_array().unwrap();
+    require(
+        entries.len() < 256 && order.len() < 256,
+        "firmware boot inventory has no space for a new entry",
+    )?;
+    let id = (0..=u16::MAX)
+        .find(|id| {
+            let name = format!("Boot{id:04X}-{GUID}");
+            !entries
+                .keys()
+                .any(|entry| entry.eq_ignore_ascii_case(&name))
+                && !order.contains(&value!(id))
+                && before["next"]["id"] != value!(id)
+        })
+        .ok_or_else(|| Error("no unused firmware boot entry number".into()))?;
+    Ok((format!("{id:04X}"), order.len().to_string()))
+}
+
 pub(crate) fn published(mut body: Value) -> Result<Value> {
     validate(&body)?;
     require(
@@ -177,7 +214,18 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Value> {
 }
 pub(crate) fn validate(body: &Value) -> Result<()> {
     json::fields(body, "before entry entry_sha256 partition")?;
-    json::fields(&body["before"], "entries order")?;
+    json::fields(&body["before"], "entries order next")?;
+    let next = &body["before"]["next"];
+    if !next.is_null() {
+        json::fields(next, "id sha256")?;
+        require(
+            next["id"]
+                .as_u64()
+                .is_some_and(|id| id <= u64::from(u16::MAX)),
+            "EFI BootNext number invalid",
+        )?;
+        enzimos_policy::identity::sha(next["sha256"].as_str().unwrap_or_default())?;
+    }
     let map = body["before"]["entries"]
         .as_object()
         .ok_or_else(|| Error("EFI before entries type".into()))?;
@@ -296,7 +344,7 @@ mod tests {
     #[test]
     fn publication_receipt_refuses_reusing_a_prior_firmware_entry_or_half_a_result() {
         let entry = format!("Boot0001-{GUID}");
-        let good = value!({"before":{"entries":{},"order":[2,3]},"entry":entry,"entry_sha256":"a".repeat(64),"partition":parse(&option()).unwrap()});
+        let good = value!({"before":{"entries":{},"order":[2,3],"next":null},"entry":entry,"entry_sha256":"a".repeat(64),"partition":parse(&option()).unwrap()});
         validate(&good).unwrap();
         let mut reused = good.clone();
         reused["before"]["entries"][&entry] = value!("a".repeat(64));
@@ -307,5 +355,17 @@ mod tests {
         let mut scalar = good;
         scalar["before"]["order"][0] = value!("2");
         assert!(validate(&scalar).is_err());
+    }
+    #[test]
+    fn registration_appends_without_claiming_an_existing_or_pending_entry() {
+        let before = value!({
+            "entries":{(format!("Boot0000-{GUID}")):"a".repeat(64)},
+            "order":[0, 2, 0],
+            "next":{"id":1,"sha256":"b".repeat(64)}
+        });
+        assert_eq!(registration(&before).unwrap(), ("0003".into(), "3".into()));
+        let after = expected_snapshot(&before, before["entries"].clone(), 3);
+        assert_eq!(after["order"], value!([0, 2, 0, 3]));
+        assert_eq!(after["next"], before["next"]);
     }
 }

@@ -184,6 +184,12 @@ pub fn install(context: &Received, media: &Admitted, configured: Value) -> Resul
         let partition = crate::install_boot_esp::observe(context, media)?;
         body["firmware"] = value!({"before":crate::install_boot_firmware::capture()?,"entry":null,"entry_sha256":null,"partition":partition});
         receipt::record(context, &body, true)?;
+        let (entry, index) =
+            crate::install_boot_firmware::registration(&body["firmware"]["before"])?;
+        require(
+            crate::install_boot_firmware::capture()? == body["firmware"]["before"],
+            "firmware boot variables changed before entry publication",
+        )?;
         let disk = context.boot_disk.as_ref().unwrap();
         let number = partition["partition"].as_u64().unwrap().to_string();
         crate::install_config_tools::run_descriptors(
@@ -192,6 +198,10 @@ pub fn install(context: &Received, media: &Admitted, configured: Value) -> Resul
             "/usr/bin/efibootmgr",
             &[
                 "--create",
+                "--bootnum",
+                &entry,
+                "--index",
+                &index,
                 "--disk",
                 "@fd:1",
                 "--part",
