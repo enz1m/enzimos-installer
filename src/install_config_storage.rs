@@ -25,7 +25,7 @@ fn absent(directory: &File, name: &str) -> Result<()> {
     }
     Ok(())
 }
-fn memory_kib() -> Result<u64> {
+pub(crate) fn memory_kib() -> Result<u64> {
     let bytes = files::read_kernel(Path::new("/proc/meminfo"), 65536)?;
     let text = std::str::from_utf8(&bytes).map_err(|_| Error("kernel memory encoding".into()))?;
     let rows = text

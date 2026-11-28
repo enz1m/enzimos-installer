@@ -198,12 +198,17 @@ fn filesystem_number(info: &str, key: &str) -> Result<u64> {
         .map_err(|_| Error("invalid filesystem geometry".into()))
 }
 pub fn inspect(disk: &str) -> Result<Value> {
+    inspect_with_minimum(disk, MIN_ROOT + BOOT_SIZE)
+}
+
+pub fn inspect_with_minimum(disk: &str, minimum: u64) -> Result<Value> {
+    let minimum = minimum.max(MIN_ROOT + BOOT_SIZE);
     let state = observe(disk)?;
     let table = &state["table"];
     let sector = sector(table)?;
     let mut plans = Vec::new();
     for (start, size) in free_regions(table)? {
-        if mul(size, sector)? >= MIN_ROOT + BOOT_SIZE {
+        if mul(size, sector)? >= minimum {
             let mut p = make_plan(&state, start, size, Value::Null)?;
             p["label"] = value!("Use unallocated space");
             plans.push(p);
@@ -218,7 +223,7 @@ pub fn inspect(disk: &str) -> Result<Value> {
             .unwrap_or("");
         let size = mul(number(&p["size"])?, sector)?;
         let new = size / 2 / MIB * MIB;
-        if !matches!(fs, "ext4" | "ntfs") || size - new < MIN_ROOT + BOOT_SIZE {
+        if !matches!(fs, "ext4" | "ntfs") || size - new < minimum {
             continue;
         }
         let checked: Result<()> = (|| {
@@ -250,7 +255,7 @@ pub fn inspect(disk: &str) -> Result<Value> {
         // MiB alignment of an unaligned partition can cost almost 2 MiB; a region
         // that falls below the minimum is not offered rather than failing the
         // whole disk inspection (and every other plan with it).
-        if end <= start || mul(end - start, sector)? < MIN_ROOT + BOOT_SIZE {
+        if end <= start || mul(end - start, sector)? < minimum {
             continue;
         }
         let shrink = value!({"node":node,"filesystem":fs,"old_size":p["size"],"new_size":start - number(&p["start"])?});

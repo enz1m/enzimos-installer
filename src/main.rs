@@ -152,7 +152,10 @@ fn execute(args: &[String]) -> Result<Value> {
             setup::live()?;
             network::export_connected(Path::new("/mnt/enzimos"))?; Ok(Value::Null)
         },
-        Some("partition") if args.len() == 3 && args[1] == "inspect" => partition::inspect(&args[2]),
+        Some("storage-minimum") if args.len() == 1 =>
+            Ok(value!(enzimos_installer::install_capacity::graphical_minimum()?)),
+        Some("partition") if args.len() == 3 && args[1] == "inspect" =>
+            partition::inspect_with_minimum(&args[2], enzimos_installer::install_capacity::graphical_minimum()?),
         Some("unmount") if args.len() == 1 => { unmount::finish()?; Ok(Value::Null) },
         Some("disk-idle") if args.len()==2 => {setup::disk_idle(&args[1])?;Ok(Value::Null)},
         Some("enable-multilib") if args.len()==1 => {setup::enable_multilib()?;Ok(Value::Null)},

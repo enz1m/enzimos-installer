@@ -96,6 +96,10 @@ pub fn manifest(body: &Value, members: &BTreeMap<String, String>, now_millis: u6
         fields.push_str(" desktop_xwayland");
         xwayland(body, receipt)?;
     }
+    if let Some(payload) = body.get("storage_payload") {
+        fields.push_str(" storage_payload");
+        crate::install_capacity::validate(payload)?;
+    }
     json::fields(body, &fields)?;
     require(
         body["schema"] == 1

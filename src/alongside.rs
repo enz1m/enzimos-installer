@@ -380,6 +380,10 @@ pub(crate) fn apply(source: &Source, media: &Admitted, session: &Session) -> Res
         .iter()
         .find(|p| p["id"] == id)
         .ok_or_else(|| Error("alongside disk layout changed after review".into()))?;
+    let region_bytes = number(&review["sector"])?
+        .checked_mul(number(&review["size"])?)
+        .ok_or_else(|| Error("alongside geometry overflow".into()))?;
+    crate::install_capacity::check(region_bytes, media, &source.answers)?;
     let before = crate::partition::observe(session.disk().path.to_str().unwrap())?;
     let plan = allocation::alongside_plan(
         &before,

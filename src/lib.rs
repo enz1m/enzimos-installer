@@ -53,6 +53,8 @@ mod install_config_storage;
 mod install_config_tools;
 pub mod install_configuration;
 pub mod install_coordinator;
+/// Target storage capacity accounting.
+pub mod install_capacity;
 pub mod install_coordinator_record;
 mod install_finish;
 mod install_power_profile;

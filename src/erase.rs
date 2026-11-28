@@ -275,6 +275,7 @@ pub(crate) fn apply_session(
         !media.media.physical_leaves().contains(&disk.number),
         "installation medium cannot be the erase target",
     )?;
+    crate::install_capacity::check(disk.bytes, media, &source.answers)?;
     let sector = disk.sector_size()?;
     let guids = [guid()?, guid()?, guid()?, guid()?];
     let plan = layout(disk.bytes, sector, disk.path.to_str().unwrap(), &guids)?;

@@ -42,7 +42,7 @@ impl NativePackage {
         self.declaration.file == crate::native_media::AI_MODELS_FILE
     }
 }
-fn nvidia(gpu: Gpu) -> Result<bool> {
+pub(crate) fn nvidia(gpu: Gpu) -> Result<bool> {
     if gpu != Gpu::Auto {
         return Ok(gpu == Gpu::Nvidia);
     }
